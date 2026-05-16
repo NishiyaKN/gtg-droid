@@ -64,30 +64,36 @@ class BootReceiver : BroadcastReceiver() {
             // momento em que o alarme foi agendado e este reboot. Se o dia
             // agora está inativo, empurra para o próximo dia ativo,
             // preservando o time-of-day original (já validado contra a janela
-            // de atividade quando o alarme foi computado). Persiste o novo
-            // millis para manter o resto do app sincronizado.
+            // de atividade quando o alarme foi computado).
             val activeDays = sessionPrefs.activeDaysOfWeek
-            val triggerAt = if (original.dayOfWeek in activeDays) {
+            val needsShift = original.dayOfWeek !in activeDays
+            val triggerAt = if (!needsShift) {
                 original
             } else {
                 val adjustedDate = findNextActiveDate(original.toLocalDate(), activeDays)
-                val adjusted = adjustedDate.atTime(original.toLocalTime())
-                sessionPrefs.setNextAlarm(
-                    epochMillis = adjusted.atZone(ZoneId.systemDefault())
-                        .toInstant().toEpochMilli(),
-                    exerciseId = sessionPrefs.pendingExerciseId,
-                    exerciseName = sessionPrefs.pendingExerciseName,
-                    targetReps = sessionPrefs.pendingTargetReps,
-                )
-                adjusted
+                adjustedDate.atTime(original.toLocalTime())
             }
 
+            // Schedule PRIMEIRO; persiste DEPOIS — sem essa ordem, se
+            // AlarmManager rejeitar (SCHEDULE_EXACT_ALARM revogado em
+            // runtime), AlarmSchedulerImpl engole SecurityException
+            // silenciosamente e o app fica com prefs novos apontando para
+            // alarme inexistente.
             alarmScheduler.schedule(
                 triggerAt = triggerAt,
                 exerciseId = sessionPrefs.pendingExerciseId,
                 exerciseName = sessionPrefs.pendingExerciseName,
                 targetReps = sessionPrefs.pendingTargetReps,
             )
+            if (needsShift) {
+                sessionPrefs.setNextAlarm(
+                    epochMillis = triggerAt.atZone(ZoneId.systemDefault())
+                        .toInstant().toEpochMilli(),
+                    exerciseId = sessionPrefs.pendingExerciseId,
+                    exerciseName = sessionPrefs.pendingExerciseName,
+                    targetReps = sessionPrefs.pendingTargetReps,
+                )
+            }
         } else {
             // Alarme já deveria ter disparado → marcar como pendente.
             // Na próxima vez que o usuário abrir o app, o HomeViewModel

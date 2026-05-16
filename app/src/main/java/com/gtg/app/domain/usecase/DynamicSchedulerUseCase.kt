@@ -55,17 +55,19 @@ class DynamicSchedulerUseCase @Inject constructor(
     }
 
     /**
-     * Bundle de dependências pré-buscadas para uma data específica. Permite que
-     * callers que iteram sobre o scheduler para a mesma data (ex:
-     * [PreviewTodayRoutineUseCase]) evitem refazer fetches Room idênticos.
+     * Bundle de dependências pré-buscadas. Permite que callers que iteram
+     * sobre o scheduler para a mesma data (ex: [PreviewTodayRoutineUseCase])
+     * evitem refazer fetches Room idênticos.
      *
-     * Os blocos pré-buscados aplicam-se à `date` informada. Se uma chamada
-     * subsequente landar em data diferente, [evaluateWithDependencies] usará
-     * os blocos mesmo assim — o caller é responsável por validar a aderência
-     * (preview filtra resultados que cruzam o dia de referência).
+     * **Sem campo `date`** — embora o caller pré-busque para uma data
+     * específica, [evaluateWithDependencies] usa os blocos com base no
+     * `candidateDate` que ele mesmo computa. Quando essas datas divergem
+     * (preview cruza meia-noite), o caller filtra o resultado externamente
+     * (ex: `nextResult.dateTime.toLocalDate() != referenceDate`). Expor um
+     * campo `date` aqui sugeriria que a engine respeita a data, o que não é
+     * verdade — era um trap para callers futuros.
      */
     data class PrefetchedDependencies(
-        val date: LocalDate,
         val window: ActivityWindow,
         val manualBlocks: List<InactivityBlock>,
         val calendarBlocks: List<InactivityBlock>,
@@ -126,7 +128,6 @@ class DynamicSchedulerUseCase @Inject constructor(
             val manualDef = async { inactivityBlockRepository.getBlocksActiveOn(date) }
             val calendarDef = async { calendarEventRepository.getBlocksOn(date) }
             PrefetchedDependencies(
-                date = date,
                 window = window,
                 manualBlocks = manualDef.await(),
                 calendarBlocks = calendarDef.await(),
@@ -150,11 +151,16 @@ class DynamicSchedulerUseCase @Inject constructor(
     ): ScheduleResult {
         // ────────────────────────────────────────────────────────────────
         // REGRA 2 — Cálculo Base
+        // O ponto de partida é sempre relativo ao momento do Check,
+        // não ao momento atual. Isso preserva a cadência do usuário.
         // ────────────────────────────────────────────────────────────────
         var candidate = checkTime.plusMinutes(baseIntervalMinutes)
 
         // ────────────────────────────────────────────────────────────────
         // REGRA 3 — Descanso Mínimo Obrigatório (20 min)
+        // Se o usuário atrasou o Check (ex: fez Check 60min depois do alarme),
+        // o candidato poderia cair no passado ou muito próximo de "agora".
+        // Garantimos pelo menos MINIMUM_REST_MINUTES a partir de NOW.
         // ────────────────────────────────────────────────────────────────
         val earliestAllowed = now.plusMinutes(MINIMUM_REST_MINUTES)
         if (candidate.isBefore(earliestAllowed)) {
@@ -167,12 +173,18 @@ class DynamicSchedulerUseCase @Inject constructor(
         val windowStartToday = candidateDate.atTime(window.startTime)
         val windowEndToday = candidateDate.atTime(window.endTime)
 
+        // Verificar se o candidato está ANTES do início da janela do dia.
+        // Isso ocorre se o check foi feito de madrugada ou se o intervalo
+        // empurrou o candidato para além da meia-noite.
         if (candidate.isBefore(windowStartToday)) {
             candidate = windowStartToday
         }
 
         // ────────────────────────────────────────────────────────────────
-        // Dia da semana inativo
+        // Dia da semana inativo — usuário desabilitou este weekday
+        // em Configurações (ex: sábado/domingo desligados). Rola para o
+        // próximo dia ativo. Avalia ANTES das regras 5 e 4 para não gastar
+        // ciclos em um dia que será descartado de qualquer forma.
         // ────────────────────────────────────────────────────────────────
         if (candidateDate.dayOfWeek !in activeDaysOfWeek) {
             return scheduleForNextActiveDay(candidateDate, window.startTime, activeDaysOfWeek)
@@ -180,6 +192,8 @@ class DynamicSchedulerUseCase @Inject constructor(
 
         // ────────────────────────────────────────────────────────────────
         // REGRA 5 — Fim do Expediente (checagem inicial)
+        // Se já ultrapassou o fim da janela de hoje ANTES mesmo de
+        // verificar colisões, vai direto para amanhã.
         // ────────────────────────────────────────────────────────────────
         if (!candidate.isBefore(windowEndToday)) {
             return scheduleForNextActiveDay(candidateDate, window.startTime, activeDaysOfWeek)
@@ -187,12 +201,20 @@ class DynamicSchedulerUseCase @Inject constructor(
 
         // ────────────────────────────────────────────────────────────────
         // REGRA 4 — Colisão com Blocos de Inatividade
+        //
+        // Itera sobre todos os blocos pré-buscados (manuais + Calendar
+        // Provider) para resolver colisões. O loop é necessário porque
+        // ajustar para evitar um bloco pode empurrar o horário para dentro
+        // de outro bloco adjacente.
+        //
+        // Limite de MAX_COLLISION_ITERATIONS previne loop infinito em
+        // configurações patológicas (blocos sobrepostos, etc).
+        //
+        // Blocos virtuais do Calendar já são NONE+specificDate, então
+        // entram no mesmo pipeline da Regra 4 sem alteração da lógica.
         // ────────────────────────────────────────────────────────────────
-        // Usa blocos pré-buscados. Em chamadas onde candidateDate != deps.date
-        // (raro — só em iterações de preview que cruzam meia-noite), o caller
-        // já filtra o resultado, então não há impacto observável.
         val blocks = (deps.manualBlocks + deps.calendarBlocks)
-            .sortedBy { it.startTime }
+            .sortedBy { it.startTime } // ordenar por início para processamento sequencial
 
         var collisionResolved: Boolean
         var iterations = 0
@@ -205,35 +227,53 @@ class DynamicSchedulerUseCase @Inject constructor(
                 val blockStart = candidateDate.atTime(block.startTime)
                 val blockEnd = candidateDate.atTime(block.endTime)
 
+                // Candidato está dentro deste bloco? [blockStart, blockEnd)
                 if (candidate >= blockStart && candidate < blockEnd) {
+                    // Quantos minutos se passaram desde o início do bloco
                     val minutesPastStart = Duration.between(blockStart, candidate).toMinutes()
 
                     if (minutesPastStart < INACTIVITY_PROXIMITY_MINUTES) {
+                        // ─── Caso A: Perto do INÍCIO do bloco ───
+                        // Antecipa para BUFFER minutos antes do início do bloco.
                         val anticipatedTime = blockStart.minusMinutes(INACTIVITY_BUFFER_MINUTES)
+
+                        // Só antecipa se o horário antecipado ainda respeitar o
+                        // descanso mínimo E estiver dentro da janela de atividade.
                         if (!anticipatedTime.isBefore(earliestAllowed) &&
                             !anticipatedTime.isBefore(windowStartToday)
                         ) {
                             candidate = anticipatedTime
                         } else {
+                            // Não é possível antecipar (violaria descanso mínimo ou
+                            // cairia antes da janela) → adia para depois do bloco.
                             candidate = blockEnd.plusMinutes(INACTIVITY_BUFFER_MINUTES)
                         }
                     } else {
+                        // ─── Caso B: Meio ou fim do bloco ───
+                        // Adia para BUFFER minutos depois do fim do bloco.
                         candidate = blockEnd.plusMinutes(INACTIVITY_BUFFER_MINUTES)
                     }
 
+                    // Marcamos que houve ajuste → precisamos re-verificar todos os
+                    // blocos pois o novo horário pode colidir com outro bloco.
                     collisionResolved = false
-                    break
+                    break // reinicia o for para verificar com o novo candidate
                 }
             }
         } while (!collisionResolved && iterations < MAX_COLLISION_ITERATIONS)
 
         // ────────────────────────────────────────────────────────────────
         // REGRA 5 — Fim do Expediente (checagem final)
+        // Após resolver colisões, o candidato pode ter sido empurrado
+        // para além do fim da janela. Nesse caso, agenda para amanhã.
         // ────────────────────────────────────────────────────────────────
         if (!candidate.isBefore(windowEndToday)) {
             return scheduleForNextActiveDay(candidateDate, window.startTime, activeDaysOfWeek)
         }
 
+        // Se o candidato caiu em um dia diferente de "hoje" (ex: intervalo
+        // cruzou meia-noite e empurrou para windowStart do dia seguinte),
+        // retornar ScheduledTomorrow para que a UI mostre a mensagem correta.
         return if (candidate.toLocalDate().isAfter(todayDate)) {
             ScheduleResult.ScheduledTomorrow(candidate)
         } else {
@@ -253,29 +293,4 @@ class DynamicSchedulerUseCase @Inject constructor(
         val nextDate = findNextActiveDate(currentDate, activeDaysOfWeek)
         return ScheduleResult.ScheduledTomorrow(nextDate.atTime(windowStartTime))
     }
-}
-
-/**
- * Acha o próximo [LocalDate] ESTRITAMENTE depois de [after] cujo `dayOfWeek`
- * pertence a [activeDaysOfWeek]. Caminha no máximo 7 dias.
- *
- * Compartilhado entre [DynamicSchedulerUseCase] (roll-over normal),
- * [com.gtg.app.presentation.home.HomeViewModel] (roll-over de fim de janela)
- * e [com.gtg.app.presentation.alarm.BootReceiver] (validação pós-reboot),
- * para garantir que **todos** os caminhos que produzem datas futuras respeitem
- * o filtro de dias da semana.
- *
- * Se todos os 7 dias estiverem inativos (config patológica — a UI deve
- * impedir isso, mas defensivamente), cai para `after + 1` para não travar
- * o scheduler indefinidamente.
- */
-fun findNextActiveDate(
-    after: LocalDate,
-    activeDaysOfWeek: Set<DayOfWeek>,
-): LocalDate {
-    repeat(7) { offset ->
-        val candidate = after.plusDays(offset.toLong() + 1)
-        if (candidate.dayOfWeek in activeDaysOfWeek) return candidate
-    }
-    return after.plusDays(1)
 }

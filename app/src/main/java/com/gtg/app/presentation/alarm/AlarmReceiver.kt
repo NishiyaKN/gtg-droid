@@ -64,6 +64,18 @@ class AlarmReceiver : BroadcastReceiver() {
             val exerciseId = intent.getLongExtra(EXTRA_EXERCISE_ID, -1L)
             val exerciseName = intent.getStringExtra(EXTRA_EXERCISE_NAME) ?: "Exercício"
             val targetReps = intent.getIntExtra(EXTRA_TARGET_REPS, 0)
+            val isOvershoot = intent.getBooleanExtra(EXTRA_IS_OVERSHOOT, false)
+
+            // Guard de overshoot em dia inativo: o re-alerta foi agendado para
+            // `now + N min`. Se esse N min cruza meia-noite para um dia que
+            // ficou inativo, o disparo cai em dia que o usuário desabilitou.
+            // O guard original (no momento do agendamento) não captura essa
+            // travessia. Aqui validamos no FIRE — return early sem tocar nada.
+            // Não aplicamos ao alarme primário porque o BootReceiver/HomeVM já
+            // empurram nextAlarmMillis para dia ativo no schedule.
+            if (isOvershoot && LocalDateTime.now().dayOfWeek !in sessionPrefs.activeDaysOfWeek) {
+                return
+            }
 
             // Marcar como pendente para o HomeViewModel
             sessionPrefs.setAlarmPending(true)

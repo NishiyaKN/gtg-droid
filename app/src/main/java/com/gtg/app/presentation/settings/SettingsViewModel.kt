@@ -17,12 +17,12 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
 import java.time.LocalTime
 import javax.inject.Inject
@@ -77,6 +77,9 @@ class SettingsViewModel @Inject constructor(
         const val MAX_BASE_INTERVAL = 240L
         const val MIN_DAILY_TARGET = 1
         const val MAX_DAILY_TARGET = 50
+
+        /** Cap do LRU cache de títulos de ringtone — acima do esperado (~50). */
+        private const val MAX_CACHE_SIZE = 32
     }
 
     private val _state = MutableStateFlow(SettingsUiState())
@@ -87,8 +90,16 @@ class SettingsViewModel @Inject constructor(
     // emissão de observeChanges no main thread, congelando a primeira
     // composição da Settings. Cache + IO dispatcher + atualização em duas
     // fases (prefs imediato, título quando resolvido) resolve.
-    // Acessado apenas de viewModelScope (Main.immediate) — sem sync needed.
-    private val titleCache = mutableMapOf<String?, String>()
+    //
+    // LinkedHashMap com `removeEldestEntry` provê LRU bounded em 32 entradas —
+    // cap prático muito acima dos ~50 ringtones típicos do sistema, mas evita
+    // crescimento patológico em devices com biblioteca grande ou em runs
+    // longos. Acessado apenas de viewModelScope (Main.immediate) — sem sync.
+    private val titleCache = object : LinkedHashMap<String?, String>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String?, String>): Boolean {
+            return size > MAX_CACHE_SIZE
+        }
+    }
 
     init {
         // Observa a janela ativa do Room. Reseta os campos editáveis sempre que

@@ -46,6 +46,13 @@ fun AutoShrinkText(
     fontWeight: FontWeight? = null,
     textAlign: TextAlign? = null,
 ) {
+    // require: style.fontSize.value retorna NaN para TextUnit.Unspecified. NaN
+    // bypassa o guard maxSp<=minSp em shrinkToFit (comparações NaN sempre false),
+    // propagando NaN para TextMeasurer — UB. Falha em tempo de composição é
+    // melhor que UB silencioso.
+    require(style.fontSize != TextUnit.Unspecified) {
+        "AutoShrinkText requires style.fontSize to be defined (not Unspecified)"
+    }
     val measurer = rememberTextMeasurer()
 
     BoxWithConstraints(

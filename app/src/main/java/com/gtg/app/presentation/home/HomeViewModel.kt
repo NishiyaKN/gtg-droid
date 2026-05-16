@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.debounce
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -151,12 +152,14 @@ class HomeViewModel @Inject constructor(
     private var lastPrefsSnapshot: PrefsSnapshot? = null
 
     init {
-        // Collector único do bus de preview. `collectLatest` garante que se um
-        // segundo trigger chegar durante um recálculo em andamento, o anterior
-        // é cancelado — não há mais necessidade de gerenciar `previewJob`.
+        // Collector único do bus de preview. `collectLatest` cancela um cálculo
+        // em andamento quando novo trigger chega — não há mais necessidade de
+        // gerenciar `previewJob`. debounce(16ms) ≈ 1 frame @ 60Hz: coalesce os
+        // bursts de 4 observers iniciais sem latência perceptível (reduzido
+        // de 50ms para minimizar delay no cold-start da preview).
         viewModelScope.launch {
             previewTriggers
-                .debounce(50.milliseconds)
+                .debounce(16.milliseconds)
                 .collectLatest { doRecalculateRoutinePreview() }
         }
 
@@ -165,27 +168,34 @@ class HomeViewModel @Inject constructor(
         observeExercises()
         observeActivityWindow()
 
-        // Trigger inicial — sem isto a primeira preview esperaria 50ms do
+        // Trigger inicial — sem isto a primeira preview esperaria 16ms do
         // debounce após o primeiro observer emitir.
         previewTriggers.tryEmit(Unit)
     }
 
     private fun observeActivityWindow() {
         viewModelScope.launch {
-            activityWindowRepository.observeActiveWindow().collectLatest { window ->
-                _state.update {
-                    it.copy(
-                        activeWindow = window,
-                        hasActivityWindow = window != null,
-                    )
+            // `distinctUntilChanged` filtra emissões duplicadas — Room re-emite
+            // o flow em qualquer mudança da tabela, mas a janela pode não ter
+            // mudado de fato. Sem isso, todo INSERT/UPDATE em outra row da
+            // mesma tabela disparava restartCountdown + recálculo de preview
+            // sem motivo.
+            activityWindowRepository.observeActiveWindow()
+                .distinctUntilChanged()
+                .collectLatest { window ->
+                    _state.update {
+                        it.copy(
+                            activeWindow = window,
+                            hasActivityWindow = window != null,
+                        )
+                    }
+                    // Janela mudou → projeção precisa ser reconstruída usando os
+                    // novos limites (do contrário a Home segue mostrando os horários
+                    // calculados com a janela antiga). Countdown também depende da
+                    // janela para decidir overdue vs. roll-over para o dia seguinte.
+                    previewTriggers.tryEmit(Unit)
+                    restartCountdown()
                 }
-                // Janela mudou → projeção precisa ser reconstruída usando os
-                // novos limites (do contrário a Home segue mostrando os horários
-                // calculados com a janela antiga). Countdown também depende da
-                // janela para decidir overdue vs. roll-over para o dia seguinte.
-                previewTriggers.tryEmit(Unit)
-                restartCountdown()
-            }
         }
     }
 
@@ -199,10 +209,15 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             // `conflate()` descarta emissões intermediárias quando o consumer
             // está ocupado. setNextAlarm() faz 5 .apply() sequenciais (uma por
-            // campo do alarme) — sem conflate eram 5 ciclos de collectLatest e
-            // 5 disparos de preview/countdown. Com conflate, o snapshot final
-            // já reflete os 5 campos e processamos uma vez só.
-            sessionPrefs.observeChanges().conflate().collectLatest {
+            // campo do alarme) — sem conflate eram 5 ciclos do collector. Com
+            // conflate, o snapshot final já reflete os 5 campos.
+            //
+            // `collect` (não `collectLatest`): quando rescheduleFromAnchor
+            // suspende em queries Room, NÃO queremos que uma próxima emissão
+            // cancele o reschedule no meio (alarme dismissado mas não
+            // reagendado = state inconsistente). conflate já coalesce; a
+            // semântica de "drop in-flight" do collectLatest era nociva aqui.
+            sessionPrefs.observeChanges().conflate().collect {
                 val snapshot = PrefsSnapshot(
                     nextAlarmMillis = sessionPrefs.nextAlarmMillis,
                     isSessionActive = sessionPrefs.isSessionActive,
@@ -223,7 +238,6 @@ class HomeViewModel @Inject constructor(
                 }
 
                 val previous = lastPrefsSnapshot
-                lastPrefsSnapshot = snapshot
 
                 // Só relança countdown/preview quando algum campo deles muda —
                 // evita N relançamentos por write em prefs irrelevantes (som,
@@ -260,6 +274,12 @@ class HomeViewModel @Inject constructor(
                         rescheduleFromAnchor(snapshot.baseIntervalMinutes)
                     }
                 }
+
+                // Atualiza o baseline APÓS os handlers de reschedule terem
+                // rodado. Se mutássemos antes da suspend de rescheduleFromAnchor
+                // e o usuário disparasse outra mudança no meio, a próxima
+                // iteração veria `previous == snapshot já novo` e perderia o diff.
+                lastPrefsSnapshot = snapshot
             }
         }
     }
@@ -274,9 +294,9 @@ class HomeViewModel @Inject constructor(
             exerciseLogRepository.observeAll().collectLatest {
                 val today = LocalDate.now()
 
-                // Paraleliza as 3 queries — sao reads independentes da mesma
-                // tabela; SQLite serializa internamente mas o dispatch e
-                // concorrente, e a coroutine espera so o max-latencia em vez
+                // Paraleliza as 3 queries — são reads independentes da mesma
+                // tabela; SQLite serializa internamente mas o dispatch é
+                // concorrente, e a coroutine espera só o max-latência em vez
                 // da soma das 3.
                 val (sets, reps, breakdown) = coroutineScope {
                     val setsDef = async { exerciseLogRepository.totalSetsBetween(today, today) }

@@ -69,7 +69,6 @@ import com.gtg.app.presentation.theme.GtgPrimary
 import com.gtg.app.presentation.theme.countdownDisplay
 import com.gtg.app.presentation.theme.GtgSuccess
 import com.gtg.app.presentation.theme.GtgSurface
-import com.gtg.app.presentation.theme.GtgSurfaceBright
 import com.gtg.app.presentation.theme.GtgSurfaceVariant
 
 @Composable
@@ -77,6 +76,11 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Computado uma vez por recomposição — usado tanto pelo Crossfade quanto
+    // pela condicional do RoutinePreviewCard. Sem extrair, era invocado 2× no
+    // mesmo escopo. Pure function sem side effects, mas extração explicita
+    // que os dois reads referem-se à mesma classificação.
+    val screenState = resolveScreenState(state)
     val snackbarHostState = remember { SnackbarHostState() }
 
     val snackbarMessage = stringResource(R.string.home_window_snackbar)
@@ -135,7 +139,7 @@ fun HomeScreen(
             // transição visualmente, mas dentro do envelope snappy.
             item(key = "screen_state_content") {
                 Crossfade(
-                    targetState = resolveScreenState(state),
+                    targetState = screenState,
                     animationSpec = tween(durationMillis = 120),
                     label = "home_content",
                     modifier = Modifier.fillMaxWidth(),
@@ -164,7 +168,7 @@ fun HomeScreen(
 
             // ── Preview da rotina (não mostra quando não há exercício) ──
             if (state.routinePreview.isNotEmpty() &&
-                resolveScreenState(state) != ScreenState.NO_EXERCISE
+                screenState != ScreenState.NO_EXERCISE
             ) {
                 item(key = "routine_preview") {
                     RoutinePreviewCard(
