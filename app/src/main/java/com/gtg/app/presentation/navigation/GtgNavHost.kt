@@ -1,5 +1,7 @@
 package com.gtg.app.presentation.navigation
 
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -92,19 +94,29 @@ fun GtgNavHost() {
             }
         },
     ) { padding ->
-        // navigation-compose 2.8.x default é swap instantâneo; sem isto, qualquer
-        // stutter da primeira composição da nova tela fica visualmente bruto.
-        // Fade ~220ms entrando, 180ms saindo (saída um pouco mais rápida sustenta
-        // a sensação de "puxar a nova tela à frente"). 220ms está abaixo do
-        // limiar de 300ms onde a transição passaria a parecer lenta.
+        // Curvas explícitas + duração curta = "snap":
+        // - Entrada 140ms com LinearOutSlowIn → começa rápido e desacelera (sensação
+        //   de "aterrissar"); o usuário vê a nova tela quase imediatamente.
+        // - Saída  80ms com FastOutLinearIn  → começa lento e acelera (sensação de
+        //   "ir embora"); a tela antiga sai do caminho antes da nova chegar.
+        // Total perceptual ~140ms (entrada e saída sobrepostas no NavHost). Abaixo
+        // disso, o crossfade vira flash visível; acima, perde a sensação snappy.
         NavHost(
             navController = navController,
             startDestination = Route.HOME.route,
             modifier = Modifier.padding(padding),
-            enterTransition = { fadeIn(animationSpec = tween(durationMillis = 220)) },
-            exitTransition = { fadeOut(animationSpec = tween(durationMillis = 180)) },
-            popEnterTransition = { fadeIn(animationSpec = tween(durationMillis = 220)) },
-            popExitTransition = { fadeOut(animationSpec = tween(durationMillis = 180)) },
+            enterTransition = {
+                fadeIn(animationSpec = tween(durationMillis = 140, easing = LinearOutSlowInEasing))
+            },
+            exitTransition = {
+                fadeOut(animationSpec = tween(durationMillis = 80, easing = FastOutLinearInEasing))
+            },
+            popEnterTransition = {
+                fadeIn(animationSpec = tween(durationMillis = 140, easing = LinearOutSlowInEasing))
+            },
+            popExitTransition = {
+                fadeOut(animationSpec = tween(durationMillis = 80, easing = FastOutLinearInEasing))
+            },
         ) {
             composable(Route.HOME.route) {
                 HomeScreen()
