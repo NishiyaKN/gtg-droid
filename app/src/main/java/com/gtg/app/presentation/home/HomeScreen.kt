@@ -468,7 +468,14 @@ private fun StatItem(label: String, value: String) {
 
 @Composable
 private fun NoExerciseContent() {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    // fillMaxWidth: sem isso o Column pega só a largura intrínseca dos filhos
+    // e horizontalAlignment.CenterHorizontally só centraliza dentro dessa
+    // largura mínima — o resultado é o bloco inteiro encostado à esquerda
+    // do container pai (LazyColumn item).
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         Icon(
             imageVector = Icons.Default.FitnessCenter,
             contentDescription = null,
