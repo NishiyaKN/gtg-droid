@@ -24,15 +24,21 @@ import com.gtg.app.presentation.alarm.AlarmReceiver
 import com.gtg.app.presentation.alarm.AlarmSoundPlayer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlin.time.Duration.Companion.milliseconds
 import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -94,6 +100,7 @@ data class HomeUiState(
 // ViewModel
 // ──────────────────────────────────────────────────────────────
 
+@OptIn(FlowPreview::class)
 @HiltViewModel
 class HomeViewModel @Inject constructor(
     @ApplicationContext private val context: Context,
@@ -117,9 +124,17 @@ class HomeViewModel @Inject constructor(
 
     private var countdownJob: Job? = null
 
-    // Cancela job anterior antes de relançar — sem isso, dois recálculos
-    // concorrentes podem escrever no state fora de ordem.
-    private var previewJob: Job? = null
+    // Bus único para pedidos de recálculo da preview. 4 observers (prefs,
+    // exercises, activity window, daily stats não — só os 3 primeiros) podiam
+    // disparar `recalculateRoutinePreview()` em cascata na entrada da Home —
+    // o método cancelava o job anterior, mas eram 2-4 ciclos cancelados antes
+    // de estabilizar. Agora cada observer faz `tryEmit(Unit)` aqui; o collector
+    // único debounceia 50ms (sub-3 frames @ 60Hz) e roda o recálculo apenas
+    // uma vez por burst.
+    private val previewTriggers = MutableSharedFlow<Unit>(
+        extraBufferCapacity = 1,
+        onBufferOverflow = BufferOverflow.DROP_OLDEST,
+    )
 
     private data class PrefsSnapshot(
         val nextAlarmMillis: Long,
@@ -134,10 +149,23 @@ class HomeViewModel @Inject constructor(
     private var lastPrefsSnapshot: PrefsSnapshot? = null
 
     init {
+        // Collector único do bus de preview. `collectLatest` garante que se um
+        // segundo trigger chegar durante um recálculo em andamento, o anterior
+        // é cancelado — não há mais necessidade de gerenciar `previewJob`.
+        viewModelScope.launch {
+            previewTriggers
+                .debounce(50.milliseconds)
+                .collectLatest { doRecalculateRoutinePreview() }
+        }
+
         observeSessionPreferences()
         observeDailyStats()
         observeExercises()
         observeActivityWindow()
+
+        // Trigger inicial — sem isto a primeira preview esperaria 50ms do
+        // debounce após o primeiro observer emitir.
+        previewTriggers.tryEmit(Unit)
     }
 
     private fun observeActivityWindow() {
@@ -153,7 +181,7 @@ class HomeViewModel @Inject constructor(
                 // novos limites (do contrário a Home segue mostrando os horários
                 // calculados com a janela antiga). Countdown também depende da
                 // janela para decidir overdue vs. roll-over para o dia seguinte.
-                recalculateRoutinePreview()
+                previewTriggers.tryEmit(Unit)
                 restartCountdown()
             }
         }
@@ -167,7 +195,12 @@ class HomeViewModel @Inject constructor(
      */
     private fun observeSessionPreferences() {
         viewModelScope.launch {
-            sessionPrefs.observeChanges().collectLatest {
+            // `conflate()` descarta emissões intermediárias quando o consumer
+            // está ocupado. setNextAlarm() faz 5 .apply() sequenciais (uma por
+            // campo do alarme) — sem conflate eram 5 ciclos de collectLatest e
+            // 5 disparos de preview/countdown. Com conflate, o snapshot final
+            // já reflete os 5 campos e processamos uma vez só.
+            sessionPrefs.observeChanges().conflate().collectLatest {
                 val snapshot = PrefsSnapshot(
                     nextAlarmMillis = sessionPrefs.nextAlarmMillis,
                     isSessionActive = sessionPrefs.isSessionActive,
@@ -195,7 +228,7 @@ class HomeViewModel @Inject constructor(
                 // bypass DND, lastCheckMillis, etc.).
                 if (snapshot != previous) {
                     restartCountdown()
-                    recalculateRoutinePreview()
+                    previewTriggers.tryEmit(Unit)
                 }
 
                 // baseInterval mudou em sessão ativa → recalcular cadência.
@@ -266,7 +299,7 @@ class HomeViewModel @Inject constructor(
                         currentExercise = exercises.firstOrNull(),
                     )
                 }
-                recalculateRoutinePreview()
+                previewTriggers.tryEmit(Unit)
             }
         }
     }
@@ -274,73 +307,74 @@ class HomeViewModel @Inject constructor(
     /**
      * Recalcula a projeção de [PlannedSet]s para o resto do dia.
      *
+     * Chamada exclusivamente pelo collector único de [previewTriggers] no
+     * `init`. Não cancela job manualmente — o `collectLatest` no collector
+     * cancela automaticamente quando um novo trigger chega durante a execução.
+     *
      * Origem do primeiro item:
      * - Se há alarme agendado (sessão ativa): usa o `nextAlarmMillis` real.
      * - Senão: usa "agora + intervalo base" como projeção hipotética.
      *
-     * Roda em coroutine porque o UseCase faz queries Room (window + blocks).
+     * Suspend porque o UseCase faz queries Room (window + blocks).
      */
-    private fun recalculateRoutinePreview() {
-        previewJob?.cancel()
-        previewJob = viewModelScope.launch {
-            val activeExercises = _state.value.activeExercises
-            if (activeExercises.isEmpty()) {
-                _state.update { it.copy(routinePreview = emptyList()) }
-                return@launch
-            }
+    private suspend fun doRecalculateRoutinePreview() {
+        val activeExercises = _state.value.activeExercises
+        if (activeExercises.isEmpty()) {
+            _state.update { it.copy(routinePreview = emptyList()) }
+            return
+        }
 
-            val nextMillis = sessionPrefs.nextAlarmMillis
-            val firstAlarm: LocalDateTime
-            val isScheduled: Boolean
-            val firstIndex: Int
-            if (sessionPrefs.isSessionActive && nextMillis > 0L) {
-                firstAlarm = LocalDateTime.ofInstant(
-                    java.time.Instant.ofEpochMilli(nextMillis),
-                    ZoneId.systemDefault(),
-                )
-                isScheduled = true
-                // Onde estamos na rotação? Encontra o exercício pending na lista.
-                // Se sumiu (deletado/desativado), recomeça do 0.
-                val pendingId = sessionPrefs.pendingExerciseId
-                firstIndex = activeExercises.indexOfFirst { it.id == pendingId }
-                    .takeIf { it >= 0 } ?: 0
-            } else {
-                // Sessão parada — projeta "se eu iniciar agora", mas passando
-                // pelo scheduler para respeitar a janela de atividade. Sem isso
-                // a UI mostra horários fora da janela (ex: 23h01 quando janela
-                // termina às 17h30) por usar `now + interval` cego.
-                val candidate = dynamicScheduler.calculateNextAlarm(
-                    checkTime = LocalDateTime.now(),
-                    baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
-                    activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
-                )
-                when (candidate) {
-                    is ScheduleResult.Scheduled -> {
-                        firstAlarm = candidate.dateTime
-                    }
-                    is ScheduleResult.ScheduledTomorrow,
-                    ScheduleResult.NoWindowConfigured -> {
-                        // Fora da janela hoje (ou sem janela) → não há projeção
-                        // significativa "do dia" para mostrar.
-                        _state.update { it.copy(routinePreview = emptyList()) }
-                        return@launch
-                    }
-                }
-                isScheduled = false
-                firstIndex = 0
-            }
-
-            val preview = previewTodayRoutine(
-                firstAlarmAt = firstAlarm,
-                activeExercises = activeExercises,
-                firstExerciseIndex = firstIndex,
+        val nextMillis = sessionPrefs.nextAlarmMillis
+        val firstAlarm: LocalDateTime
+        val isScheduled: Boolean
+        val firstIndex: Int
+        if (sessionPrefs.isSessionActive && nextMillis > 0L) {
+            firstAlarm = LocalDateTime.ofInstant(
+                java.time.Instant.ofEpochMilli(nextMillis),
+                ZoneId.systemDefault(),
+            )
+            isScheduled = true
+            // Onde estamos na rotação? Encontra o exercício pending na lista.
+            // Se sumiu (deletado/desativado), recomeça do 0.
+            val pendingId = sessionPrefs.pendingExerciseId
+            firstIndex = activeExercises.indexOfFirst { it.id == pendingId }
+                .takeIf { it >= 0 } ?: 0
+        } else {
+            // Sessão parada — projeta "se eu iniciar agora", mas passando
+            // pelo scheduler para respeitar a janela de atividade. Sem isso
+            // a UI mostra horários fora da janela (ex: 23h01 quando janela
+            // termina às 17h30) por usar `now + interval` cego.
+            val candidate = dynamicScheduler.calculateNextAlarm(
+                checkTime = LocalDateTime.now(),
                 baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
-                isFirstAlarmScheduled = isScheduled,
                 activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
             )
-
-            _state.update { it.copy(routinePreview = preview) }
+            when (candidate) {
+                is ScheduleResult.Scheduled -> {
+                    firstAlarm = candidate.dateTime
+                }
+                is ScheduleResult.ScheduledTomorrow,
+                ScheduleResult.NoWindowConfigured -> {
+                    // Fora da janela hoje (ou sem janela) → não há projeção
+                    // significativa "do dia" para mostrar.
+                    _state.update { it.copy(routinePreview = emptyList()) }
+                    return
+                }
+            }
+            isScheduled = false
+            firstIndex = 0
         }
+
+        val preview = previewTodayRoutine(
+            firstAlarmAt = firstAlarm,
+            activeExercises = activeExercises,
+            firstExerciseIndex = firstIndex,
+            baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
+            isFirstAlarmScheduled = isScheduled,
+            activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
+        )
+
+        _state.update { it.copy(routinePreview = preview) }
     }
 
     // ── Countdown Timer ──────────────────────────────────────────
