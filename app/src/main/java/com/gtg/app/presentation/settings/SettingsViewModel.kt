@@ -279,4 +279,21 @@ class SettingsViewModel @Inject constructor(
         if (updated.isEmpty()) return
         sessionPrefs.setActiveDaysOfWeek(updated)
     }
+
+    /**
+     * Troca o idioma da interface. Persiste a escolha e dispara
+     * AppCompatDelegate, que recria as Activities automaticamente para
+     * aplicar os novos resources.
+     */
+    fun setLanguage(tag: String) {
+        if (sessionPrefs.languageTag == tag) return
+        sessionPrefs.setLanguageTag(tag)
+        androidx.appcompat.app.AppCompatDelegate.setApplicationLocales(
+            androidx.core.os.LocaleListCompat.forLanguageTags(tag),
+        )
+    }
+
+    /** Tag atual em formato BCP-47, ou "en" como fallback defensivo. */
+    val currentLanguageTag: String
+        get() = sessionPrefs.languageTag ?: "en"
 }

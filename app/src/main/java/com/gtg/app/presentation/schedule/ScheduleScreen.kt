@@ -51,6 +51,7 @@ import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -60,6 +61,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gtg.app.R
 import com.gtg.app.domain.model.InactivityBlock
 import com.gtg.app.domain.model.Recurrence
 import com.gtg.app.presentation.common.WheelTimePicker
@@ -93,7 +95,10 @@ fun ScheduleScreen(viewModel: ScheduleViewModel = hiltViewModel()) {
                 containerColor = GtgPrimary,
                 contentColor = Color.White,
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Adicionar bloco")
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = stringResource(R.string.schedule_add_block_a11y),
+                )
             }
         },
     ) { padding ->
@@ -104,14 +109,14 @@ fun ScheduleScreen(viewModel: ScheduleViewModel = hiltViewModel()) {
                 .padding(horizontal = 20.dp, vertical = 16.dp),
         ) {
             Text(
-                text = "Agenda de Inatividade",
+                text = stringResource(R.string.schedule_title),
                 color = Color.White,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
-                text = "Períodos em que você não será notificado.",
+                text = stringResource(R.string.schedule_subtitle),
                 color = Color.White.copy(alpha = 0.5f),
                 fontSize = 14.sp,
             )
@@ -231,13 +236,13 @@ private fun ScheduleTabSelector(
             .padding(4.dp),
     ) {
         TabChip(
-            label = "Calendário",
+            label = stringResource(R.string.schedule_tab_calendar),
             selected = selected == ScheduleTab.CALENDAR,
             onClick = { onSelect(ScheduleTab.CALENDAR) },
             modifier = Modifier.weight(1f),
         )
         TabChip(
-            label = "Lista",
+            label = stringResource(R.string.schedule_tab_list),
             selected = selected == ScheduleTab.LIST,
             onClick = { onSelect(ScheduleTab.LIST) },
             modifier = Modifier.weight(1f),
@@ -296,7 +301,7 @@ private fun CalendarMonthView(
             IconButton(onClick = onPrevMonth, modifier = Modifier.size(36.dp)) {
                 Icon(
                     Icons.Default.ChevronLeft,
-                    contentDescription = "Mês anterior",
+                    contentDescription = stringResource(R.string.schedule_prev_month),
                     tint = Color.White.copy(alpha = 0.7f),
                 )
             }
@@ -316,7 +321,7 @@ private fun CalendarMonthView(
             IconButton(onClick = onNextMonth, modifier = Modifier.size(36.dp)) {
                 Icon(
                     Icons.Default.ChevronRight,
-                    contentDescription = "Próximo mês",
+                    contentDescription = stringResource(R.string.schedule_next_month),
                     tint = Color.White.copy(alpha = 0.7f),
                 )
             }
@@ -376,13 +381,19 @@ private fun CalendarMonthView(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            LegendItem(color = GtgError.copy(alpha = 0.7f), label = "Dia inteiro indisponível")
-            LegendItem(color = GtgPrimary, label = "Bloco parcial", dotOnly = true)
+            LegendItem(
+                color = GtgError.copy(alpha = 0.7f),
+                label = stringResource(R.string.schedule_legend_fullday),
+            )
+            LegendItem(
+                color = GtgPrimary,
+                label = stringResource(R.string.schedule_legend_partial),
+                dotOnly = true,
+            )
         }
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Toque em um dia para criar um bloco — dia inteiro, intervalo " +
-                "específico, ou recorrência baseada nessa data.",
+            text = stringResource(R.string.schedule_hint),
             color = Color.White.copy(alpha = 0.4f),
             fontSize = 11.sp,
             modifier = Modifier.padding(end = 8.dp),
@@ -530,7 +541,12 @@ private fun BlockCard(
             Column(modifier = Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        text = block.title.ifBlank { if (isCalendar) "Ocupado" else "Bloco" },
+                        text = block.title.ifBlank {
+                            stringResource(
+                                if (isCalendar) R.string.common_busy
+                                else R.string.schedule_block_default_title,
+                            )
+                        },
                         color = Color.White,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.Medium,
@@ -575,7 +591,10 @@ private fun BlockCard(
             IconButton(onClick = onDelete, modifier = Modifier.size(36.dp)) {
                 Icon(
                     imageVector = if (isCalendar) Icons.Default.Edit else Icons.Default.Delete,
-                    contentDescription = if (isCalendar) "Personalizar" else "Deletar",
+                    contentDescription = stringResource(
+                        if (isCalendar) R.string.schedule_personalize_a11y
+                        else R.string.common_delete,
+                    ),
                     tint = if (isCalendar) {
                         GtgPrimary.copy(alpha = 0.6f)
                     } else {
@@ -606,7 +625,7 @@ private fun PersonalizeCalendarDialog(
         text = {
             Column {
                 Text(
-                    text = target.block.title.ifBlank { "Ocupado" },
+                    text = target.block.title.ifBlank { stringResource(R.string.common_busy) },
                     color = GtgPrimary,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -630,12 +649,19 @@ private fun PersonalizeCalendarDialog(
         },
         confirmButton = {
             TextButton(onClick = onConfirm) {
-                Text("Personalizar", color = GtgPrimary, fontWeight = FontWeight.Bold)
+                Text(
+                    text = stringResource(R.string.schedule_personalize_confirm),
+                    color = GtgPrimary,
+                    fontWeight = FontWeight.Bold,
+                )
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancelar", color = Color.White.copy(alpha = 0.5f))
+                Text(
+                    text = stringResource(R.string.common_cancel),
+                    color = Color.White.copy(alpha = 0.5f),
+                )
             }
         },
     )
@@ -657,7 +683,12 @@ private fun ExistingBlockRow(item: DisplayBlock) {
         Spacer(modifier = Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = item.block.title.ifBlank { if (isCalendar) "Ocupado" else "Bloco" },
+                text = item.block.title.ifBlank {
+                    stringResource(
+                        if (isCalendar) R.string.common_busy
+                        else R.string.schedule_block_default_title,
+                    )
+                },
                 color = Color.White,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
@@ -688,16 +719,24 @@ private fun formatTimeRange(block: InactivityBlock): String {
     return "$start — $end"
 }
 
-private fun formatRecurrence(block: InactivityBlock): String = when (block.recurrence) {
-    Recurrence.NONE -> block.specificDate?.toString() ?: "Uma vez"
-    Recurrence.DAILY -> "Todos os dias"
-    Recurrence.WEEKLY -> {
-        val days = block.recurrenceDays
-            .sortedBy { it.value }
-            .joinToString(", ") { it.getDisplayName(TextStyle.SHORT, Locale("pt", "BR")) }
-        "Semanal: $days"
+@Composable
+private fun formatRecurrence(block: InactivityBlock): String {
+    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
+    return when (block.recurrence) {
+        Recurrence.NONE -> block.specificDate?.toString()
+            ?: stringResource(R.string.recurrence_none)
+        Recurrence.DAILY -> stringResource(R.string.schedule_recurrence_format_daily)
+        Recurrence.WEEKLY -> {
+            val days = block.recurrenceDays
+                .sortedBy { it.value }
+                .joinToString(", ") { it.getDisplayName(TextStyle.SHORT, locale) }
+            stringResource(R.string.schedule_recurrence_format_weekly, days)
+        }
+        Recurrence.MONTHLY -> stringResource(
+            R.string.schedule_recurrence_format_monthly,
+            block.dayOfMonth ?: 1,
+        )
     }
-    Recurrence.MONTHLY -> "Mensal: dia ${block.dayOfMonth}"
 }
 
 @Composable
@@ -714,9 +753,17 @@ private fun EmptySchedule() {
             modifier = Modifier.size(64.dp),
         )
         Spacer(modifier = Modifier.height(16.dp))
-        Text("Nenhum bloco de inatividade", color = Color.White.copy(alpha = 0.4f), fontSize = 16.sp)
+        Text(
+            text = stringResource(R.string.schedule_empty_title),
+            color = Color.White.copy(alpha = 0.4f),
+            fontSize = 16.sp,
+        )
         Spacer(modifier = Modifier.height(4.dp))
-        Text("Toque no + para adicionar.", color = Color.White.copy(alpha = 0.3f), fontSize = 14.sp)
+        Text(
+            text = stringResource(R.string.schedule_empty_hint),
+            color = Color.White.copy(alpha = 0.3f),
+            fontSize = 14.sp,
+        )
     }
 }
 
@@ -760,7 +807,10 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
         containerColor = GtgSurface,
         title = {
             Text(
-                if (isEditing) "Editar Bloco" else "Novo Bloco",
+                stringResource(
+                    if (isEditing) R.string.schedule_dialog_edit_title
+                    else R.string.schedule_dialog_new_title,
+                ),
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
             )
@@ -770,7 +820,7 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
                 // Mostra o que já existe naquele dia — só quando criando (não editando).
                 if (!isEditing && existingForDay.isNotEmpty()) {
                     Text(
-                        text = "JÁ MARCADO NESTE DIA",
+                        text = stringResource(R.string.schedule_dialog_already_marked),
                         color = Color.White.copy(alpha = 0.45f),
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
@@ -790,7 +840,7 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
                 OutlinedTextField(
                     value = state.dialogTitle,
                     onValueChange = viewModel::updateTitle,
-                    label = { Text("Título (ex: Reunião)") },
+                    label = { Text(stringResource(R.string.schedule_dialog_title_field)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     colors = tfColors,
@@ -805,7 +855,7 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = "Dia inteiro",
+                            text = stringResource(R.string.schedule_dialog_all_day),
                             color = Color.White,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.Medium,
@@ -837,24 +887,32 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.SpaceEvenly,
                     ) {
-                        WheelTimePicker("Início", state.dialogStartHour, state.dialogStartMinute) { h, m ->
-                            viewModel.updateStartTime(h, m)
-                        }
+                        WheelTimePicker(
+                            label = stringResource(R.string.settings_time_start),
+                            hour = state.dialogStartHour,
+                            minute = state.dialogStartMinute,
+                        ) { h, m -> viewModel.updateStartTime(h, m) }
                         Text(
                             text = "→",
                             color = Color.White.copy(alpha = 0.5f),
                             fontWeight = FontWeight.Bold,
                         )
-                        WheelTimePicker("Fim", state.dialogEndHour, state.dialogEndMinute) { h, m ->
-                            viewModel.updateEndTime(h, m)
-                        }
+                        WheelTimePicker(
+                            label = stringResource(R.string.settings_time_end),
+                            hour = state.dialogEndHour,
+                            minute = state.dialogEndMinute,
+                        ) { h, m -> viewModel.updateEndTime(h, m) }
                     }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
 
                 // ── Recorrência ──────────────────────────────────
-                Text("Recorrência", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+                Text(
+                    text = stringResource(R.string.schedule_dialog_recurrence),
+                    color = Color.White.copy(alpha = 0.7f),
+                    fontSize = 13.sp,
+                )
                 Spacer(modifier = Modifier.height(6.dp))
                 FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Recurrence.entries.forEach { rec ->
@@ -885,7 +943,11 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
                 when (state.dialogRecurrence) {
                     Recurrence.WEEKLY -> {
                         Spacer(modifier = Modifier.height(12.dp))
-                        Text("Dias da semana", color = Color.White.copy(alpha = 0.7f), fontSize = 13.sp)
+                        Text(
+                            text = stringResource(R.string.schedule_dialog_weekdays),
+                            color = Color.White.copy(alpha = 0.7f),
+                            fontSize = 13.sp,
+                        )
                         Spacer(modifier = Modifier.height(6.dp))
                         Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                             DayOfWeek.entries.forEach { day ->
@@ -916,7 +978,7 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
                             onValueChange = { v ->
                                 v.filter { it.isDigit() }.toIntOrNull()?.let { viewModel.updateDayOfMonth(it) }
                             },
-                            label = { Text("Dia do mês (1-31)") },
+                            label = { Text(stringResource(R.string.schedule_dialog_day_of_month)) },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                             modifier = Modifier.width(150.dp),
@@ -929,41 +991,59 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
         },
         confirmButton = {
             TextButton(onClick = viewModel::saveBlock) {
-                Text("Salvar", color = GtgPrimary, fontWeight = FontWeight.Bold)
+                Text(
+                    text = stringResource(R.string.common_save),
+                    color = GtgPrimary,
+                    fontWeight = FontWeight.Bold,
+                )
             }
         },
         dismissButton = {
             TextButton(onClick = viewModel::dismissDialog) {
-                Text("Cancelar", color = Color.White.copy(alpha = 0.5f))
+                Text(
+                    text = stringResource(R.string.common_cancel),
+                    color = Color.White.copy(alpha = 0.5f),
+                )
             }
         },
     )
 }
 
 
-private fun recurrenceLabel(r: Recurrence): String = when (r) {
-    Recurrence.NONE -> "Uma vez"
-    Recurrence.DAILY -> "Diário"
-    Recurrence.WEEKLY -> "Semanal"
-    Recurrence.MONTHLY -> "Mensal"
-}
+@Composable
+private fun recurrenceLabel(r: Recurrence): String = stringResource(
+    when (r) {
+        Recurrence.NONE -> R.string.recurrence_none
+        Recurrence.DAILY -> R.string.recurrence_daily
+        Recurrence.WEEKLY -> R.string.recurrence_weekly
+        Recurrence.MONTHLY -> R.string.recurrence_monthly
+    },
+)
 
 /**
  * Texto explicativo dinâmico baseado em [ScheduleUiState.dialogDate] e na
  * recorrência selecionada. Ex: "Marca toda quarta-feira" quando WEEKLY +
- * data clicada é uma quarta.
+ * data clicada é uma quarta. Usa o Locale do contexto, então segue o idioma
+ * escolhido pelo usuário automaticamente.
  */
+@Composable
 private fun recurrenceHelper(state: ScheduleUiState): String {
-    val locale = Locale("pt", "BR")
+    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
     val date = state.dialogDate
     return when (state.dialogRecurrence) {
         Recurrence.NONE -> {
             val dayLabel = date.dayOfWeek
                 .getDisplayName(TextStyle.FULL, locale)
                 .replaceFirstChar { it.lowercase(locale) }
-            "Marca apenas $dayLabel, ${date.dayOfMonth}/${date.monthValue}/${date.year}."
+            stringResource(
+                R.string.schedule_recurrence_helper_once,
+                dayLabel,
+                date.dayOfMonth,
+                date.monthValue,
+                date.year,
+            )
         }
-        Recurrence.DAILY -> "Marca todos os dias."
+        Recurrence.DAILY -> stringResource(R.string.schedule_recurrence_helper_daily)
         Recurrence.WEEKLY -> {
             val days = state.dialogWeekDays
                 .sortedBy { it.value }
@@ -971,8 +1051,15 @@ private fun recurrenceHelper(state: ScheduleUiState): String {
                     it.getDisplayName(TextStyle.FULL, locale)
                         .replaceFirstChar { c -> c.lowercase(locale) }
                 }
-            if (days.isBlank()) "Selecione ao menos um dia da semana." else "Marca toda $days."
+            if (days.isBlank()) {
+                stringResource(R.string.schedule_dialog_select_at_least_one_day)
+            } else {
+                stringResource(R.string.schedule_recurrence_helper_weekly, days)
+            }
         }
-        Recurrence.MONTHLY -> "Marca todo dia ${state.dialogDayOfMonth} do mês."
+        Recurrence.MONTHLY -> stringResource(
+            R.string.schedule_recurrence_helper_monthly,
+            state.dialogDayOfMonth,
+        )
     }
 }

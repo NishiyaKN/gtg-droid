@@ -28,6 +28,7 @@ import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.DoNotDisturbOn
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.PlayArrow
@@ -63,6 +64,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -70,6 +72,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.gtg.app.R
 import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.domain.repository.CalendarInfo
 import com.gtg.app.presentation.alarm.AlarmSoundPlayer
@@ -100,14 +103,14 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
             .padding(horizontal = 20.dp, vertical = 16.dp),
     ) {
         Text(
-            text = "Configurações",
+            text = stringResource(R.string.settings_title),
             color = Color.White,
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Parâmetros do algoritmo de agendamento.",
+            text = stringResource(R.string.settings_subtitle),
             color = Color.White.copy(alpha = 0.5f),
             fontSize = 14.sp,
         )
@@ -180,6 +183,13 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        LanguageSection(
+            currentTag = viewModel.currentLanguageTag,
+            onSelect = viewModel::setLanguage,
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         SoundSection(
             title = state.alarmSoundTitle,
             isCustom = state.isCustomSound,
@@ -210,12 +220,12 @@ private fun ActivityWindowSection(
 ) {
     SectionCard(
         icon = Icons.Default.Schedule,
-        title = "Janela de Atividade",
-        description = "Horário em que o app pode te notificar.",
+        title = stringResource(R.string.settings_activity_window_title),
+        description = stringResource(R.string.settings_activity_window_description),
     ) {
         if (!isConfigured) {
             Text(
-                text = "Nenhuma janela configurada — alarmes não serão agendados até salvar.",
+                text = stringResource(R.string.settings_activity_window_unset),
                 color = GtgError.copy(alpha = 0.85f),
                 fontSize = 12.sp,
             )
@@ -228,7 +238,7 @@ private fun ActivityWindowSection(
             horizontalArrangement = Arrangement.SpaceEvenly,
         ) {
             WheelTimePicker(
-                label = "Início",
+                label = stringResource(R.string.settings_time_start),
                 hour = startHour,
                 minute = startMinute,
                 onChange = onStartChange,
@@ -239,7 +249,7 @@ private fun ActivityWindowSection(
                 fontWeight = FontWeight.Bold,
             )
             WheelTimePicker(
-                label = "Fim",
+                label = stringResource(R.string.settings_time_end),
                 hour = endHour,
                 minute = endMinute,
                 onChange = onEndChange,
@@ -269,11 +279,13 @@ private fun ActivityWindowSection(
             ),
             shape = RoundedCornerShape(10.dp),
         ) {
-            val label = when {
-                !isConfigured -> "Salvar Janela"
-                isDirty -> "Salvar Alterações"
-                else -> "Salvo"
-            }
+            val label = stringResource(
+                when {
+                    !isConfigured -> R.string.settings_window_save
+                    isDirty -> R.string.settings_window_save_changes
+                    else -> R.string.settings_window_saved
+                },
+            )
             if (!isDirty && isConfigured) {
                 Icon(
                     imageVector = Icons.Default.CheckCircle,
@@ -298,8 +310,8 @@ private fun ActiveDaysSection(
     val locale = java.util.Locale.forLanguageTag("pt-BR")
     SectionCard(
         icon = Icons.Default.Schedule,
-        title = "Dias da Semana",
-        description = "Dias em que o app pode disparar alarmes.",
+        title = stringResource(R.string.settings_active_days_title),
+        description = stringResource(R.string.settings_active_days_description),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -343,8 +355,11 @@ private fun BaseIntervalSection(
 
     SectionCard(
         icon = Icons.Default.Alarm,
-        title = "Intervalo Base",
-        description = "Tempo entre séries (mín. ${SettingsViewModel.MIN_BASE_INTERVAL}min).",
+        title = stringResource(R.string.settings_base_interval_title),
+        description = stringResource(
+            R.string.settings_base_interval_description,
+            SettingsViewModel.MIN_BASE_INTERVAL.toInt(),
+        ),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -352,12 +367,12 @@ private fun BaseIntervalSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Atual",
+                text = stringResource(R.string.settings_current_label),
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 13.sp,
             )
             Text(
-                text = "${draft.roundToInt()} min",
+                text = stringResource(R.string.settings_min_value, draft.roundToInt()),
                 color = GtgPrimary,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
@@ -385,12 +400,18 @@ private fun BaseIntervalSection(
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
-                text = "${SettingsViewModel.MIN_BASE_INTERVAL}min",
+                text = stringResource(
+                    R.string.settings_min_value,
+                    SettingsViewModel.MIN_BASE_INTERVAL.toInt(),
+                ),
                 color = Color.White.copy(alpha = 0.3f),
                 fontSize = 11.sp,
             )
             Text(
-                text = "${SettingsViewModel.MAX_BASE_INTERVAL}min",
+                text = stringResource(
+                    R.string.settings_min_value,
+                    SettingsViewModel.MAX_BASE_INTERVAL.toInt(),
+                ),
                 color = Color.White.copy(alpha = 0.3f),
                 fontSize = 11.sp,
             )
@@ -409,8 +430,8 @@ private fun DailyTargetSection(
 
     SectionCard(
         icon = Icons.Default.Repeat,
-        title = "Meta Diária de Séries",
-        description = "Quantas séries você quer fazer por dia.",
+        title = stringResource(R.string.settings_daily_target_title),
+        description = stringResource(R.string.settings_daily_target_description),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -418,12 +439,12 @@ private fun DailyTargetSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = "Atual",
+                text = stringResource(R.string.settings_current_label),
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 13.sp,
             )
             Text(
-                text = "${draft.roundToInt()} séries",
+                text = stringResource(R.string.settings_daily_target_value, draft.roundToInt()),
                 color = GtgPrimary,
                 fontSize = 22.sp,
                 fontWeight = FontWeight.Bold,
@@ -514,8 +535,8 @@ private fun SoundSection(
 
     SectionCard(
         icon = Icons.Default.MusicNote,
-        title = "Som do Alarme",
-        description = "Tocado quando o alarme dispara.",
+        title = stringResource(R.string.settings_sound_title),
+        description = stringResource(R.string.settings_sound_description),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -529,7 +550,10 @@ private fun SoundSection(
                     fontWeight = FontWeight.SemiBold,
                 )
                 Text(
-                    text = if (isCustom) "Personalizado" else "Padrão do sistema",
+                    text = stringResource(
+                        if (isCustom) R.string.settings_sound_custom
+                        else R.string.settings_sound_default,
+                    ),
                     color = Color.White.copy(alpha = 0.5f),
                     fontSize = 12.sp,
                 )
@@ -555,7 +579,10 @@ private fun SoundSection(
             ) {
                 Icon(
                     imageVector = if (isPreviewing) Icons.Default.Stop else Icons.Default.PlayArrow,
-                    contentDescription = if (isPreviewing) "Parar preview" else "Testar som",
+                    contentDescription = stringResource(
+                        if (isPreviewing) R.string.settings_sound_stop_test
+                        else R.string.settings_sound_test,
+                    ),
                     tint = GtgPrimary,
                 )
             }
@@ -565,7 +592,7 @@ private fun SoundSection(
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Button(
-                onClick = { pickerLauncher.launch(buildRingtonePickerIntent(currentUri)) },
+                onClick = { pickerLauncher.launch(buildRingtonePickerIntent(context, currentUri)) },
                 modifier = Modifier.weight(1f),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = GtgPrimary,
@@ -573,7 +600,10 @@ private fun SoundSection(
                 ),
                 shape = RoundedCornerShape(10.dp),
             ) {
-                Text("Escolher", fontWeight = FontWeight.SemiBold)
+                Text(
+                    text = stringResource(R.string.settings_sound_choose),
+                    fontWeight = FontWeight.SemiBold,
+                )
             }
 
             if (isCustom) {
@@ -591,7 +621,10 @@ private fun SoundSection(
                         modifier = Modifier.size(18.dp),
                     )
                     Spacer(modifier = Modifier.width(6.dp))
-                    Text("Padrão", fontSize = 14.sp)
+                    Text(
+                        text = stringResource(R.string.settings_sound_use_default),
+                        fontSize = 14.sp,
+                    )
                 }
             }
         }
@@ -607,7 +640,7 @@ private fun SoundSection(
  * - SHOW_SILENT = false: alarme silencioso não faz sentido nesse app.
  * - EXISTING_URI: pré-seleciona o som atual na lista.
  */
-private fun buildRingtonePickerIntent(currentUri: String?): Intent =
+private fun buildRingtonePickerIntent(context: android.content.Context, currentUri: String?): Intent =
     Intent(RingtoneManager.ACTION_RINGTONE_PICKER).apply {
         putExtra(
             RingtoneManager.EXTRA_RINGTONE_TYPE,
@@ -615,7 +648,10 @@ private fun buildRingtonePickerIntent(currentUri: String?): Intent =
                 RingtoneManager.TYPE_RINGTONE or
                 RingtoneManager.TYPE_NOTIFICATION,
         )
-        putExtra(RingtoneManager.EXTRA_RINGTONE_TITLE, "Escolher som do alarme")
+        putExtra(
+            RingtoneManager.EXTRA_RINGTONE_TITLE,
+            context.getString(R.string.settings_sound_picker_title),
+        )
         putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_DEFAULT, true)
         putExtra(RingtoneManager.EXTRA_RINGTONE_SHOW_SILENT, false)
         putExtra(
@@ -654,8 +690,8 @@ private fun CalendarIntegrationSection(
 
     SectionCard(
         icon = Icons.Default.CalendarMonth,
-        title = "Google Calendar",
-        description = "Bloqueia automaticamente o GtG durante eventos do calendário.",
+        title = stringResource(R.string.settings_calendar_title),
+        description = stringResource(R.string.settings_calendar_description),
     ) {
         // ── Toggle principal ─────────────────────────────────────
         Row(
@@ -665,18 +701,19 @@ private fun CalendarIntegrationSection(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (enabled) "Ativado" else "Desativado",
+                    text = stringResource(
+                        if (enabled) R.string.settings_enabled else R.string.settings_disabled,
+                    ),
                     color = if (enabled) GtgPrimary else Color.White.copy(alpha = 0.7f),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = if (enabled) {
-                        "Eventos 'ocupado' não geram alarmes."
-                    } else {
-                        "Apenas seus bloqueios manuais são considerados."
-                    },
+                    text = stringResource(
+                        if (enabled) R.string.settings_calendar_on_description
+                        else R.string.settings_calendar_off_description,
+                    ),
                     color = Color.White.copy(alpha = 0.5f),
                     fontSize = 12.sp,
                 )
@@ -715,14 +752,14 @@ private fun CalendarIntegrationSection(
             ) {
                 Column(modifier = Modifier.padding(12.dp)) {
                     Text(
-                        text = "Permissão de calendário não concedida",
+                        text = stringResource(R.string.settings_calendar_no_permission),
                         color = GtgError,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Sem permissão o GtG não consegue ler seus eventos.",
+                        text = stringResource(R.string.settings_calendar_no_permission_desc),
                         color = Color.White.copy(alpha = 0.6f),
                         fontSize = 12.sp,
                     )
@@ -744,7 +781,10 @@ private fun CalendarIntegrationSection(
                         ),
                         shape = RoundedCornerShape(8.dp),
                     ) {
-                        Text("Abrir Configurações", fontSize = 13.sp)
+                        Text(
+                            text = stringResource(R.string.settings_calendar_open_settings),
+                            fontSize = 13.sp,
+                        )
                     }
                 }
             }
@@ -754,7 +794,7 @@ private fun CalendarIntegrationSection(
         // ── Lista de calendários ─────────────────────────────────
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "CALENDÁRIOS",
+            text = stringResource(R.string.settings_calendars_header),
             color = Color.White.copy(alpha = 0.45f),
             fontSize = 11.sp,
             fontWeight = FontWeight.Bold,
@@ -764,7 +804,7 @@ private fun CalendarIntegrationSection(
 
         if (availableCalendars.isEmpty()) {
             Text(
-                text = "Nenhum calendário sincronizado encontrado.",
+                text = stringResource(R.string.settings_calendar_none_synced),
                 color = Color.White.copy(alpha = 0.5f),
                 fontSize = 13.sp,
             )
@@ -787,18 +827,17 @@ private fun CalendarIntegrationSection(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = "Ocultar títulos do Calendar",
+                    text = stringResource(R.string.settings_hide_calendar_titles),
                     color = Color.White,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = if (showTitles) {
-                        "Eventos aparecem com o título real."
-                    } else {
-                        "Eventos aparecem apenas como 'Ocupado'."
-                    },
+                    text = stringResource(
+                        if (showTitles) R.string.settings_hide_calendar_titles_on
+                        else R.string.settings_hide_calendar_titles_off,
+                    ),
                     color = Color.White.copy(alpha = 0.5f),
                     fontSize = 12.sp,
                 )
@@ -868,6 +907,62 @@ private fun CalendarPickerRow(
     }
 }
 
+// ── Idioma ───────────────────────────────────────────────────────
+
+@Composable
+private fun LanguageSection(
+    currentTag: String,
+    onSelect: (String) -> Unit,
+) {
+    SectionCard(
+        icon = Icons.Default.Language,
+        title = stringResource(R.string.settings_language_title),
+        description = stringResource(R.string.settings_language_description),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            LanguageChip(
+                label = stringResource(R.string.language_english),
+                selected = currentTag.startsWith("en"),
+                onClick = { onSelect("en") },
+                modifier = Modifier.weight(1f),
+            )
+            LanguageChip(
+                label = stringResource(R.string.language_portuguese),
+                selected = currentTag.startsWith("pt"),
+                onClick = { onSelect("pt-BR") },
+                modifier = Modifier.weight(1f),
+            )
+        }
+    }
+}
+
+@Composable
+private fun LanguageChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) GtgPrimary else GtgSurfaceVariant)
+            .clickable(onClick = onClick)
+            .padding(vertical = 12.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = if (selected) Color.White else Color.White.copy(alpha = 0.7f),
+            fontSize = 14.sp,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        )
+    }
+}
+
 // ── Re-alerta automático (Overshoot) ─────────────────────────────
 
 @Composable
@@ -881,8 +976,8 @@ private fun OvershootRepeatSection(
 
     SectionCard(
         icon = Icons.Default.NotificationsActive,
-        title = "Re-alerta Automático",
-        description = "Toca de novo se você não fizer Check no horário.",
+        title = stringResource(R.string.settings_overshoot_title),
+        description = stringResource(R.string.settings_overshoot_description),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -891,7 +986,9 @@ private fun OvershootRepeatSection(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (enabled) "Ativado" else "Desativado",
+                    text = stringResource(
+                        if (enabled) R.string.settings_enabled else R.string.settings_disabled,
+                    ),
                     color = if (enabled) GtgPrimary else Color.White.copy(alpha = 0.7f),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -899,9 +996,12 @@ private fun OvershootRepeatSection(
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
                     text = if (enabled) {
-                        "Repete a cada ${draft.roundToInt()} min até você silenciar."
+                        stringResource(
+                            R.string.settings_overshoot_on_description,
+                            draft.roundToInt(),
+                        )
                     } else {
-                        "O alarme toca uma única vez."
+                        stringResource(R.string.settings_overshoot_off_description)
                     },
                     color = Color.White.copy(alpha = 0.5f),
                     fontSize = 12.sp,
@@ -928,12 +1028,12 @@ private fun OvershootRepeatSection(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "Intervalo",
+                    text = stringResource(R.string.settings_overshoot_interval_label),
                     color = Color.White.copy(alpha = 0.6f),
                     fontSize = 13.sp,
                 )
                 Text(
-                    text = "${draft.roundToInt()} min",
+                    text = stringResource(R.string.settings_min_value, draft.roundToInt()),
                     color = GtgPrimary,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.Bold,
@@ -959,12 +1059,18 @@ private fun OvershootRepeatSection(
                 horizontalArrangement = Arrangement.SpaceBetween,
             ) {
                 Text(
-                    text = "${SessionPreferences.MIN_OVERSHOOT_MINUTES}min",
+                    text = stringResource(
+                        R.string.settings_min_value,
+                        SessionPreferences.MIN_OVERSHOOT_MINUTES,
+                    ),
                     color = Color.White.copy(alpha = 0.3f),
                     fontSize = 11.sp,
                 )
                 Text(
-                    text = "${SessionPreferences.MAX_OVERSHOOT_MINUTES}min",
+                    text = stringResource(
+                        R.string.settings_min_value,
+                        SessionPreferences.MAX_OVERSHOOT_MINUTES,
+                    ),
                     color = Color.White.copy(alpha = 0.3f),
                     fontSize = 11.sp,
                 )
@@ -982,8 +1088,8 @@ private fun BypassDndSection(
 ) {
     SectionCard(
         icon = Icons.Default.DoNotDisturbOn,
-        title = "Ignorar Não Perturbe",
-        description = "Tocar mesmo em modo Não Perturbe / silencioso.",
+        title = stringResource(R.string.settings_dnd_title),
+        description = stringResource(R.string.settings_dnd_description),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -992,18 +1098,19 @@ private fun BypassDndSection(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = if (enabled) "Ativado" else "Desativado",
+                    text = stringResource(
+                        if (enabled) R.string.settings_enabled else R.string.settings_disabled,
+                    ),
                     color = if (enabled) GtgPrimary else Color.White.copy(alpha = 0.7f),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(modifier = Modifier.height(2.dp))
                 Text(
-                    text = if (enabled) {
-                        "Alarmes tocam mesmo em DND."
-                    } else {
-                        "Alarmes serão silenciados durante DND."
-                    },
+                    text = stringResource(
+                        if (enabled) R.string.settings_dnd_on_description
+                        else R.string.settings_dnd_off_description,
+                    ),
                     color = Color.White.copy(alpha = 0.5f),
                     fontSize = 12.sp,
                 )

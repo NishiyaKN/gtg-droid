@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GtG</string>
+
+    <!-- Common -->
+    <string name="common_continue">Continuar</string>
+    <string name="common_save">Salvar</string>
+    <string name="common_cancel">Cancelar</string>
+    <string name="common_delete">Deletar</string>
+    <string name="common_edit">Editar</string>
+    <string name="common_busy">Ocupado</string>
+
+    <!-- Language selection -->
+    <string name="language_select_title">Escolha seu idioma</string>
+    <string name="language_select_subtitle">Você pode alterar isso depois em Configurações.</string>
+    <string name="language_english">English</string>
+    <string name="language_portuguese">Português (BR)</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Início</string>
+    <string name="nav_exercises">Exercícios</string>
+    <string name="nav_schedule">Agenda</string>
+    <string name="nav_statistics">Estatísticas</string>
+    <string name="nav_settings">Configs</string>
+
+    <!-- Permissions -->
+    <string name="permissions_title">Permissões Necessárias</string>
+    <string name="permissions_subtitle">O GtG precisa destas permissões para funcionar corretamente.</string>
+    <string name="permission_notifications_title">Notificações</string>
+    <string name="permission_notifications_description">Exibir alertas quando for hora do exercício.</string>
+    <string name="permission_exact_alarm_title">Alarmes Exatos</string>
+    <string name="permission_exact_alarm_description">Agendar lembretes no horário preciso.</string>
+    <string name="permission_full_screen_title">Tela Cheia</string>
+    <string name="permission_full_screen_description">Exibir o exercício sobre a tela de bloqueio.</string>
+    <string name="permission_allow">Permitir</string>
+    <string name="permissions_dismiss">Prosseguir mesmo assim</string>
+
+    <!-- Home -->
+    <string name="home_summary_today">RESUMO DO DIA</string>
+    <string name="home_sets_completed_format">%1$d / %2$d sets</string>
+    <string name="home_sets">Sets</string>
+    <string name="home_reps_total">Reps Totais</string>
+    <string name="home_volume">Volume</string>
+    <string name="home_breakdown_title">POR EXERCÍCIO</string>
+    <string name="home_sets_count_format">%d sets</string>
+    <string name="home_reps">reps</string>
+    <string name="home_routine_today">PRÓXIMOS HOJE</string>
+    <string name="home_routine_projection">PROJEÇÃO DO DIA</string>
+    <string name="home_routine_disclaimer">Horários estimados — mudam se você atrasar ou pular sets.</string>
+    <string name="home_no_exercise_title">Nenhum exercício configurado</string>
+    <string name="home_no_exercise_subtitle">Adicione um exercício para começar.</string>
+    <string name="home_ready_to_train">Pronto para treinar?</string>
+    <string name="home_configure_first">Configure antes de começar</string>
+    <string name="home_window_not_configured_title">Janela de atividade não configurada</string>
+    <string name="home_window_not_configured_desc">Vá em Configs (aba inferior) e defina o horário em que o app pode te notificar (ex: 09:00 → 17:00).</string>
+    <string name="home_start_session">INICIAR SESSÃO</string>
+    <string name="home_gtg_time">HORA DO GtG!</string>
+    <string name="home_almost_there">Quase lá</string>
+    <string name="home_next_exercise">Próximo exercício</string>
+    <string name="home_overdue">atrasado</string>
+    <string name="home_target_reps_format">%d reps</string>
+    <string name="home_do_check">FAZER CHECK</string>
+    <string name="home_do_check_now">FAZER CHECK AGORA</string>
+    <string name="home_check_unlocks">Check libera 5 min antes</string>
+    <string name="home_silence_no_check">Silenciar (sem fazer check)</string>
+    <string name="home_stop">Parar</string>
+    <string name="home_window_snackbar">Configure a janela de atividade antes de iniciar.</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Configurações</string>
+    <string name="settings_subtitle">Parâmetros do algoritmo de agendamento.</string>
+    <string name="settings_activity_window_title">Janela de Atividade</string>
+    <string name="settings_activity_window_description">Horário em que o app pode te notificar.</string>
+    <string name="settings_activity_window_unset">Nenhuma janela configurada — alarmes não serão agendados até salvar.</string>
+    <string name="settings_time_start">Início</string>
+    <string name="settings_time_end">Fim</string>
+    <string name="settings_window_save">Salvar Janela</string>
+    <string name="settings_window_save_changes">Salvar Alterações</string>
+    <string name="settings_window_saved">Salvo</string>
+    <string name="settings_window_invalid">O início deve ser antes do fim.</string>
+    <string name="settings_active_days_title">Dias da Semana</string>
+    <string name="settings_active_days_description">Dias em que o app pode disparar alarmes.</string>
+    <string name="settings_base_interval_title">Intervalo Base</string>
+    <string name="settings_base_interval_description">Tempo entre séries (mín. %d min).</string>
+    <string name="settings_current_label">Atual</string>
+    <string name="settings_min_value">%d min</string>
+    <string name="settings_daily_target_title">Meta Diária de Séries</string>
+    <string name="settings_daily_target_description">Quantas séries você quer fazer por dia.</string>
+    <string name="settings_daily_target_value">%d séries</string>
+    <string name="settings_calendar_title">Google Calendar</string>
+    <string name="settings_calendar_description">Bloqueia automaticamente o GtG durante eventos do calendário.</string>
+    <string name="settings_enabled">Ativado</string>
+    <string name="settings_disabled">Desativado</string>
+    <string name="settings_calendar_on_description">Eventos \"ocupado\" não geram alarmes.</string>
+    <string name="settings_calendar_off_description">Apenas seus bloqueios manuais são considerados.</string>
+    <string name="settings_calendar_no_permission">Permissão de calendário não concedida</string>
+    <string name="settings_calendar_no_permission_desc">Sem permissão o GtG não consegue ler seus eventos.</string>
+    <string name="settings_calendar_open_settings">Abrir Configurações</string>
+    <string name="settings_calendars_header">CALENDÁRIOS</string>
+    <string name="settings_calendar_none_synced">Nenhum calendário sincronizado encontrado.</string>
+    <string name="settings_hide_calendar_titles">Ocultar títulos do Calendar</string>
+    <string name="settings_hide_calendar_titles_on">Eventos aparecem com o título real.</string>
+    <string name="settings_hide_calendar_titles_off">Eventos aparecem apenas como \"Ocupado\".</string>
+    <string name="settings_overshoot_title">Re-alerta Automático</string>
+    <string name="settings_overshoot_description">Toca de novo se você não fizer Check no horário.</string>
+    <string name="settings_overshoot_on_description">Repete a cada %d min até você silenciar.</string>
+    <string name="settings_overshoot_off_description">O alarme toca uma única vez.</string>
+    <string name="settings_overshoot_interval_label">Intervalo</string>
+    <string name="settings_dnd_title">Ignorar Não Perturbe</string>
+    <string name="settings_dnd_description">Tocar mesmo em modo Não Perturbe / silencioso.</string>
+    <string name="settings_dnd_on_description">Alarmes tocam mesmo em DND.</string>
+    <string name="settings_dnd_off_description">Alarmes serão silenciados durante DND.</string>
+    <string name="settings_sound_title">Som do Alarme</string>
+    <string name="settings_sound_description">Tocado quando o alarme dispara.</string>
+    <string name="settings_sound_custom">Personalizado</string>
+    <string name="settings_sound_default">Padrão do sistema</string>
+    <string name="settings_sound_choose">Escolher</string>
+    <string name="settings_sound_use_default">Padrão</string>
+    <string name="settings_sound_test">Testar som</string>
+    <string name="settings_sound_stop_test">Parar preview</string>
+    <string name="settings_sound_picker_title">Escolher som do alarme</string>
+    <string name="settings_language_title">Idioma</string>
+    <string name="settings_language_description">Idioma da interface.</string>
+
+    <!-- Schedule -->
+    <string name="schedule_title">Agenda de Inatividade</string>
+    <string name="schedule_subtitle">Períodos em que você não será notificado.</string>
+    <string name="schedule_tab_calendar">Calendário</string>
+    <string name="schedule_tab_list">Lista</string>
+    <string name="schedule_legend_fullday">Dia inteiro indisponível</string>
+    <string name="schedule_legend_partial">Bloco parcial</string>
+    <string name="schedule_hint">Toque em um dia para criar um bloco — dia inteiro, intervalo específico, ou recorrência baseada nessa data.</string>
+    <string name="schedule_empty_title">Nenhum bloco de inatividade</string>
+    <string name="schedule_empty_hint">Toque no + para adicionar.</string>
+    <string name="schedule_prev_month">Mês anterior</string>
+    <string name="schedule_next_month">Próximo mês</string>
+    <string name="schedule_add_block_a11y">Adicionar bloco</string>
+    <string name="schedule_block_default_title">Bloco</string>
+    <string name="schedule_block_unavailable">Indisponível</string>
+    <string name="schedule_dialog_edit_title">Editar Bloco</string>
+    <string name="schedule_dialog_new_title">Novo Bloco</string>
+    <string name="schedule_dialog_already_marked">JÁ MARCADO NESTE DIA</string>
+    <string name="schedule_dialog_title_field">Título (ex: Reunião)</string>
+    <string name="schedule_dialog_all_day">Dia inteiro</string>
+    <string name="schedule_dialog_recurrence">Recorrência</string>
+    <string name="recurrence_none">Uma vez</string>
+    <string name="recurrence_daily">Diário</string>
+    <string name="recurrence_weekly">Semanal</string>
+    <string name="recurrence_monthly">Mensal</string>
+    <string name="schedule_dialog_weekdays">Dias da semana</string>
+    <string name="schedule_dialog_select_at_least_one_day">Selecione ao menos um dia da semana.</string>
+    <string name="schedule_dialog_day_of_month">Dia do mês (1-31)</string>
+    <string name="schedule_recurrence_helper_once">Marca apenas %1$s, %2$d/%3$d/%4$d.</string>
+    <string name="schedule_recurrence_helper_daily">Marca todos os dias.</string>
+    <string name="schedule_recurrence_helper_weekly">Marca toda %s.</string>
+    <string name="schedule_recurrence_helper_monthly">Marca todo dia %d do mês.</string>
+    <string name="schedule_recurrence_format_daily">Todos os dias</string>
+    <string name="schedule_recurrence_format_weekly">Semanal: %s</string>
+    <string name="schedule_recurrence_format_monthly">Mensal: dia %d</string>
+    <string name="schedule_personalize_title">Personalizar bloqueio?</string>
+    <string name="schedule_personalize_body">Vamos clonar este evento como um bloqueio editável. O evento do Google Calendar deixará de ser sincronizado automaticamente, e mudanças futuras lá não vão afetar este.</string>
+    <string name="schedule_personalize_confirm">Personalizar</string>
+    <string name="schedule_personalize_a11y">Personalizar</string>
+    <string name="schedule_calendar_badge">CALENDAR</string>
+    <string name="schedule_block_imported">Importado do Calendar</string>
+
+    <!-- Statistics -->
+    <string name="statistics_title">Estatísticas</string>
+    <string name="statistics_today">HOJE</string>
+    <string name="statistics_week">SEMANA</string>
+    <string name="statistics_month">MÊS</string>
+    <string name="statistics_last_7_days">ÚLTIMOS 7 DIAS</string>
+    <string name="statistics_by_exercise">POR EXERCÍCIO</string>
+    <string name="statistics_period_today">Hoje</string>
+    <string name="statistics_period_week">Esta semana</string>
+    <string name="statistics_period_month">Este mês</string>
+    <string name="statistics_empty_today">Nenhum exercício registrado hoje.</string>
+    <string name="statistics_empty_week">Nenhum exercício esta semana.</string>
+    <string name="statistics_empty_month">Nenhum exercício este mês.</string>
+
+    <!-- Exercises -->
+    <string name="exercises_title">Exercícios</string>
+    <string name="exercises_add">Adicionar exercício</string>
+    <string name="exercises_empty_title">Nenhum exercício cadastrado</string>
+    <string name="exercises_empty_hint">Toque no + para adicionar.</string>
+    <string name="exercises_card_max_format">Max: %1$d  ·  %2$d%%</string>
+    <string name="exercises_active">Na rotação</string>
+    <string name="exercises_inactive">Inativo</string>
+    <string name="exercises_dialog_new">Novo Exercício</string>
+    <string name="exercises_dialog_edit">Editar Exercício</string>
+    <string name="exercises_dialog_name">Nome do exercício</string>
+    <string name="exercises_dialog_max_reps">Repetições máximas</string>
+    <string name="exercises_dialog_target_percent">Porcentagem alvo: %d%%</string>
+    <string name="exercises_dialog_computed_target">Alvo calculado: %d reps</string>
+
+    <!-- Alarm screen -->
+    <string name="alarm_title">HORA DO GtG!</string>
+    <string name="alarm_reps_label">repetições</string>
+    <string name="alarm_do_check">FAZER CHECK</string>
+    <string name="alarm_skip">Pular esta série</string>
+</resources>

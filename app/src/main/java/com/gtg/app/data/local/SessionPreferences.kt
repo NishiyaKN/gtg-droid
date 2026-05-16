@@ -46,6 +46,7 @@ class SessionPreferences @Inject constructor(
         private const val KEY_CALENDAR_SHOW_TITLES = "calendar_show_titles"
         private const val KEY_CALENDAR_OVERRIDDEN_IDS = "calendar_overridden_event_ids"
         private const val KEY_ACTIVE_DAYS_OF_WEEK = "active_days_of_week"
+        private const val KEY_LANGUAGE_TAG = "language_tag"
 
         const val DEFAULT_BASE_INTERVAL = 45L
         const val DEFAULT_DAILY_SET_TARGET = 10
@@ -149,6 +150,14 @@ class SessionPreferences @Inject constructor(
             return if (raw == null) DayOfWeek.entries.toSet() else raw.toDayOfWeekSet()
         }
 
+    /**
+     * Idioma escolhido pelo usuário no formato BCP-47 ("en", "pt-BR").
+     * `null` = primeira execução, ainda não escolheu — UI deve mostrar
+     * tela de seleção antes de prosseguir.
+     */
+    val languageTag: String?
+        get() = prefs.getString(KEY_LANGUAGE_TAG, null)
+
     // ── Escrita ──────────────────────────────────────────────────
 
     fun setSessionActive(active: Boolean) {
@@ -226,6 +235,10 @@ class SessionPreferences @Inject constructor(
 
     fun setActiveDaysOfWeek(days: Set<DayOfWeek>) {
         prefs.edit().putString(KEY_ACTIVE_DAYS_OF_WEEK, days.toDayOfWeekCsv()).apply()
+    }
+
+    fun setLanguageTag(tag: String) {
+        prefs.edit().putString(KEY_LANGUAGE_TAG, tag).apply()
     }
 
     fun clearSession() {

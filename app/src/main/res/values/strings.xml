@@ -1,0 +1,201 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">GtG</string>
+
+    <!-- Common -->
+    <string name="common_continue">Continue</string>
+    <string name="common_save">Save</string>
+    <string name="common_cancel">Cancel</string>
+    <string name="common_delete">Delete</string>
+    <string name="common_edit">Edit</string>
+    <string name="common_busy">Busy</string>
+
+    <!-- Language selection (first launch) -->
+    <string name="language_select_title">Choose your language</string>
+    <string name="language_select_subtitle">You can change this later in Settings.</string>
+    <string name="language_english">English</string>
+    <string name="language_portuguese">Português (BR)</string>
+
+    <!-- Navigation -->
+    <string name="nav_home">Home</string>
+    <string name="nav_exercises">Exercises</string>
+    <string name="nav_schedule">Schedule</string>
+    <string name="nav_statistics">Statistics</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Permissions -->
+    <string name="permissions_title">Required Permissions</string>
+    <string name="permissions_subtitle">GtG needs these permissions to function correctly.</string>
+    <string name="permission_notifications_title">Notifications</string>
+    <string name="permission_notifications_description">Show alerts when it\'s time to exercise.</string>
+    <string name="permission_exact_alarm_title">Exact Alarms</string>
+    <string name="permission_exact_alarm_description">Schedule reminders at the precise time.</string>
+    <string name="permission_full_screen_title">Full Screen</string>
+    <string name="permission_full_screen_description">Show the exercise over the lock screen.</string>
+    <string name="permission_allow">Allow</string>
+    <string name="permissions_dismiss">Continue anyway</string>
+
+    <!-- Home -->
+    <string name="home_summary_today">DAILY SUMMARY</string>
+    <string name="home_sets_completed_format">%1$d / %2$d sets</string>
+    <string name="home_sets">Sets</string>
+    <string name="home_reps_total">Total Reps</string>
+    <string name="home_volume">Volume</string>
+    <string name="home_breakdown_title">BY EXERCISE</string>
+    <string name="home_sets_count_format">%d sets</string>
+    <string name="home_reps">reps</string>
+    <string name="home_routine_today">UPCOMING TODAY</string>
+    <string name="home_routine_projection">DAY PROJECTION</string>
+    <string name="home_routine_disclaimer">Estimated times — change if you delay or skip sets.</string>
+    <string name="home_no_exercise_title">No exercise configured</string>
+    <string name="home_no_exercise_subtitle">Add an exercise to start.</string>
+    <string name="home_ready_to_train">Ready to train?</string>
+    <string name="home_configure_first">Configure before starting</string>
+    <string name="home_window_not_configured_title">Activity window not configured</string>
+    <string name="home_window_not_configured_desc">Go to Settings (bottom tab) and set the time range when the app can notify you (e.g. 09:00 → 17:00).</string>
+    <string name="home_start_session">START SESSION</string>
+    <string name="home_gtg_time">TIME FOR GtG!</string>
+    <string name="home_almost_there">Almost there</string>
+    <string name="home_next_exercise">Next exercise</string>
+    <string name="home_overdue">overdue</string>
+    <string name="home_target_reps_format">%d reps</string>
+    <string name="home_do_check">DO CHECK</string>
+    <string name="home_do_check_now">DO CHECK NOW</string>
+    <string name="home_check_unlocks">Check unlocks 5 min before</string>
+    <string name="home_silence_no_check">Silence (no check)</string>
+    <string name="home_stop">Stop</string>
+    <string name="home_window_snackbar">Set the activity window before starting.</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_subtitle">Scheduler algorithm parameters.</string>
+    <string name="settings_activity_window_title">Activity Window</string>
+    <string name="settings_activity_window_description">Time when the app can notify you.</string>
+    <string name="settings_activity_window_unset">No window configured — alarms won\'t be scheduled until you save.</string>
+    <string name="settings_time_start">Start</string>
+    <string name="settings_time_end">End</string>
+    <string name="settings_window_save">Save Window</string>
+    <string name="settings_window_save_changes">Save Changes</string>
+    <string name="settings_window_saved">Saved</string>
+    <string name="settings_window_invalid">Start must be before end.</string>
+    <string name="settings_active_days_title">Active Days</string>
+    <string name="settings_active_days_description">Days when the app can fire alarms.</string>
+    <string name="settings_base_interval_title">Base Interval</string>
+    <string name="settings_base_interval_description">Time between sets (min. %d min).</string>
+    <string name="settings_current_label">Current</string>
+    <string name="settings_min_value">%d min</string>
+    <string name="settings_daily_target_title">Daily Sets Target</string>
+    <string name="settings_daily_target_description">How many sets you want per day.</string>
+    <string name="settings_daily_target_value">%d sets</string>
+    <string name="settings_calendar_title">Google Calendar</string>
+    <string name="settings_calendar_description">Automatically blocks GtG during calendar events.</string>
+    <string name="settings_enabled">Enabled</string>
+    <string name="settings_disabled">Disabled</string>
+    <string name="settings_calendar_on_description">"Busy" events don\'t trigger alarms.</string>
+    <string name="settings_calendar_off_description">Only your manual blocks are considered.</string>
+    <string name="settings_calendar_no_permission">Calendar permission not granted</string>
+    <string name="settings_calendar_no_permission_desc">Without permission, GtG can\'t read your events.</string>
+    <string name="settings_calendar_open_settings">Open Settings</string>
+    <string name="settings_calendars_header">CALENDARS</string>
+    <string name="settings_calendar_none_synced">No synchronized calendars found.</string>
+    <string name="settings_hide_calendar_titles">Hide Calendar titles</string>
+    <string name="settings_hide_calendar_titles_on">Events show real titles.</string>
+    <string name="settings_hide_calendar_titles_off">Events show only as "Busy".</string>
+    <string name="settings_overshoot_title">Automatic Re-alert</string>
+    <string name="settings_overshoot_description">Rings again if you don\'t Check on time.</string>
+    <string name="settings_overshoot_on_description">Repeats every %d min until silenced.</string>
+    <string name="settings_overshoot_off_description">The alarm rings once.</string>
+    <string name="settings_overshoot_interval_label">Interval</string>
+    <string name="settings_dnd_title">Ignore Do Not Disturb</string>
+    <string name="settings_dnd_description">Ring even in DND / silent mode.</string>
+    <string name="settings_dnd_on_description">Alarms ring even during DND.</string>
+    <string name="settings_dnd_off_description">Alarms are silenced during DND.</string>
+    <string name="settings_sound_title">Alarm Sound</string>
+    <string name="settings_sound_description">Plays when the alarm fires.</string>
+    <string name="settings_sound_custom">Custom</string>
+    <string name="settings_sound_default">System default</string>
+    <string name="settings_sound_choose">Choose</string>
+    <string name="settings_sound_use_default">Default</string>
+    <string name="settings_sound_test">Test sound</string>
+    <string name="settings_sound_stop_test">Stop preview</string>
+    <string name="settings_sound_picker_title">Choose alarm sound</string>
+    <string name="settings_language_title">Language</string>
+    <string name="settings_language_description">Interface language.</string>
+
+    <!-- Schedule -->
+    <string name="schedule_title">Inactivity Schedule</string>
+    <string name="schedule_subtitle">Periods when you won\'t be notified.</string>
+    <string name="schedule_tab_calendar">Calendar</string>
+    <string name="schedule_tab_list">List</string>
+    <string name="schedule_legend_fullday">Full day unavailable</string>
+    <string name="schedule_legend_partial">Partial block</string>
+    <string name="schedule_hint">Tap a day to create a block — full day, time range, or recurring based on that date.</string>
+    <string name="schedule_empty_title">No inactivity blocks</string>
+    <string name="schedule_empty_hint">Tap + to add.</string>
+    <string name="schedule_prev_month">Previous month</string>
+    <string name="schedule_next_month">Next month</string>
+    <string name="schedule_add_block_a11y">Add block</string>
+    <string name="schedule_block_default_title">Block</string>
+    <string name="schedule_block_unavailable">Unavailable</string>
+    <string name="schedule_dialog_edit_title">Edit Block</string>
+    <string name="schedule_dialog_new_title">New Block</string>
+    <string name="schedule_dialog_already_marked">ALREADY SCHEDULED THIS DAY</string>
+    <string name="schedule_dialog_title_field">Title (e.g. Meeting)</string>
+    <string name="schedule_dialog_all_day">All day</string>
+    <string name="schedule_dialog_recurrence">Recurrence</string>
+    <string name="recurrence_none">Once</string>
+    <string name="recurrence_daily">Daily</string>
+    <string name="recurrence_weekly">Weekly</string>
+    <string name="recurrence_monthly">Monthly</string>
+    <string name="schedule_dialog_weekdays">Days of the week</string>
+    <string name="schedule_dialog_select_at_least_one_day">Select at least one day of the week.</string>
+    <string name="schedule_dialog_day_of_month">Day of month (1-31)</string>
+    <string name="schedule_recurrence_helper_once">Marks only %1$s, %2$d/%3$d/%4$d.</string>
+    <string name="schedule_recurrence_helper_daily">Marks every day.</string>
+    <string name="schedule_recurrence_helper_weekly">Marks every %s.</string>
+    <string name="schedule_recurrence_helper_monthly">Marks day %d of the month.</string>
+    <string name="schedule_recurrence_format_daily">Every day</string>
+    <string name="schedule_recurrence_format_weekly">Weekly: %s</string>
+    <string name="schedule_recurrence_format_monthly">Monthly: day %d</string>
+    <string name="schedule_personalize_title">Customize block?</string>
+    <string name="schedule_personalize_body">We\'ll clone this event as an editable block. The Google Calendar event will no longer sync, and future changes there won\'t affect this one.</string>
+    <string name="schedule_personalize_confirm">Customize</string>
+    <string name="schedule_personalize_a11y">Customize</string>
+    <string name="schedule_calendar_badge">CALENDAR</string>
+    <string name="schedule_block_imported">Imported from Calendar</string>
+
+    <!-- Statistics -->
+    <string name="statistics_title">Statistics</string>
+    <string name="statistics_today">TODAY</string>
+    <string name="statistics_week">WEEK</string>
+    <string name="statistics_month">MONTH</string>
+    <string name="statistics_last_7_days">LAST 7 DAYS</string>
+    <string name="statistics_by_exercise">BY EXERCISE</string>
+    <string name="statistics_period_today">Today</string>
+    <string name="statistics_period_week">This week</string>
+    <string name="statistics_period_month">This month</string>
+    <string name="statistics_empty_today">No exercise logged today.</string>
+    <string name="statistics_empty_week">No exercise this week.</string>
+    <string name="statistics_empty_month">No exercise this month.</string>
+
+    <!-- Exercises -->
+    <string name="exercises_title">Exercises</string>
+    <string name="exercises_add">Add exercise</string>
+    <string name="exercises_empty_title">No exercises registered</string>
+    <string name="exercises_empty_hint">Tap + to add.</string>
+    <string name="exercises_card_max_format">Max: %1$d  ·  %2$d%%</string>
+    <string name="exercises_active">In rotation</string>
+    <string name="exercises_inactive">Inactive</string>
+    <string name="exercises_dialog_new">New Exercise</string>
+    <string name="exercises_dialog_edit">Edit Exercise</string>
+    <string name="exercises_dialog_name">Exercise name</string>
+    <string name="exercises_dialog_max_reps">Maximum reps</string>
+    <string name="exercises_dialog_target_percent">Target percentage: %d%%</string>
+    <string name="exercises_dialog_computed_target">Calculated target: %d reps</string>
+
+    <!-- Alarm screen -->
+    <string name="alarm_title">TIME FOR GtG!</string>
+    <string name="alarm_reps_label">repetitions</string>
+    <string name="alarm_do_check">DO CHECK</string>
+    <string name="alarm_skip">Skip this set</string>
+</resources>

@@ -40,11 +40,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
+import com.gtg.app.R
 import com.gtg.app.presentation.theme.GtgBackground
 import com.gtg.app.presentation.theme.GtgPrimary
 import com.gtg.app.presentation.theme.GtgSurface
@@ -215,7 +217,7 @@ private fun AlarmScreen(
 
             // ── Título ──────────────────────────────────────────
             Text(
-                text = "HORA DO GtG!",
+                text = stringResource(R.string.alarm_title),
                 color = Color.White,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
@@ -244,7 +246,7 @@ private fun AlarmScreen(
             )
 
             Text(
-                text = "repetições",
+                text = stringResource(R.string.alarm_reps_label),
                 color = Color.White.copy(alpha = 0.6f),
                 fontSize = 16.sp,
             )
@@ -264,7 +266,7 @@ private fun AlarmScreen(
                 ),
             ) {
                 Text(
-                    text = "FAZER CHECK",
+                    text = stringResource(R.string.alarm_do_check),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.sp,
@@ -279,7 +281,7 @@ private fun AlarmScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Text(
-                    text = "Pular esta série",
+                    text = stringResource(R.string.alarm_skip),
                     color = Color.White.copy(alpha = 0.5f),
                     fontSize = 14.sp,
                 )

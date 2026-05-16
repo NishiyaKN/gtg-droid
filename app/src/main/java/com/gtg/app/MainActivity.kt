@@ -13,6 +13,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -28,6 +29,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Alarm
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Fullscreen
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -37,7 +39,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -47,41 +48,45 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.os.LocaleListCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
+import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.presentation.navigation.GtgNavHost
 import com.gtg.app.presentation.theme.GtgPrimary
 import com.gtg.app.presentation.theme.GtgSurface
 import com.gtg.app.presentation.theme.GtgSurfaceVariant
 import com.gtg.app.presentation.theme.GtgTheme
 import dagger.hilt.android.AndroidEntryPoint
+import javax.inject.Inject
 
 /**
  * Entry point do app.
  *
- * Responsabilidades:
- * 1. Verificar e solicitar as 3 permissões críticas antes de exibir o conteúdo.
- * 2. Hospedar o [GtgNavHost] com BottomNavigation (Home, Exercises, Schedule, Statistics).
- *
- * Permissões:
- * - POST_NOTIFICATIONS (Android 13+): obrigatória para exibir notificações.
- * - SCHEDULE_EXACT_ALARM (Android 12+): verificada via canScheduleExactAlarms().
- *   setAlarmClock() é isento, mas garantimos que o fallback também funcione.
- * - USE_FULL_SCREEN_INTENT (Android 14+): verificada via canUseFullScreenIntent().
- *   Pode ser revogada pelo Play Store para apps não-alarm. Redirecionamos para Settings.
+ * Camadas (de fora para dentro):
+ * 1. [LanguageGate] — força a escolha de idioma na primeira execução.
+ * 2. [PermissionGate] — solicita as 3 permissões críticas.
+ * 3. [GtgNavHost] — conteúdo principal (Home, Exercises, Schedule, Stats, Settings).
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
+
+    @Inject
+    lateinit var sessionPrefs: SessionPreferences
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         setContent {
             GtgTheme {
-                PermissionGate {
-                    GtgNavHost()
+                LanguageGate(sessionPrefs) {
+                    PermissionGate {
+                        GtgNavHost()
+                    }
                 }
             }
         }
@@ -89,20 +94,104 @@ class MainActivity : ComponentActivity() {
 }
 
 // ──────────────────────────────────────────────────────────────────
+// Language Gate (primeira execução)
+// ──────────────────────────────────────────────────────────────────
+
+@Composable
+private fun LanguageGate(
+    sessionPrefs: SessionPreferences,
+    content: @Composable () -> Unit,
+) {
+    var tag by remember { mutableStateOf(sessionPrefs.languageTag) }
+    if (tag == null) {
+        LanguageSelectionScreen { picked ->
+            sessionPrefs.setLanguageTag(picked)
+            tag = picked
+            // setApplicationLocales recria a Activity automaticamente — o estado
+            // local `tag` é restaurado do prefs no novo lifecycle.
+            AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(picked))
+        }
+    } else {
+        content()
+    }
+}
+
+@Composable
+private fun LanguageSelectionScreen(onPick: (String) -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            imageVector = Icons.Default.Language,
+            contentDescription = null,
+            tint = GtgPrimary,
+            modifier = Modifier.size(56.dp),
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        Text(
+            text = stringResource(R.string.language_select_title),
+            color = Color.White,
+            fontSize = 24.sp,
+            fontWeight = FontWeight.Bold,
+        )
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = stringResource(R.string.language_select_subtitle),
+            color = Color.White.copy(alpha = 0.6f),
+            fontSize = 14.sp,
+        )
+
+        Spacer(modifier = Modifier.height(40.dp))
+
+        LanguageOptionButton(
+            label = stringResource(R.string.language_english),
+            onClick = { onPick("en") },
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        LanguageOptionButton(
+            label = stringResource(R.string.language_portuguese),
+            onClick = { onPick("pt-BR") },
+        )
+    }
+}
+
+@Composable
+private fun LanguageOptionButton(label: String, onClick: () -> Unit) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(56.dp),
+        shape = RoundedCornerShape(16.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = GtgPrimary,
+            contentColor = Color.White,
+        ),
+    ) {
+        Text(label, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────
 // Permission Gate
 // ──────────────────────────────────────────────────────────────────
 
-/**
- * Composable que verifica permissões e exibe o [content] apenas quando
- * todas as críticas estão concedidas (ou o usuário escolheu prosseguir).
- */
 @Composable
 private fun PermissionGate(content: @Composable () -> Unit) {
     val context = LocalContext.current
     var permissionState by remember { mutableStateOf(checkPermissions(context)) }
     var userDismissed by remember { mutableStateOf(false) }
 
-    // Re-check quando o app volta ao foreground (usuário pode ter ido a Settings e voltado)
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) {
         permissionState = checkPermissions(context)
     }
@@ -122,8 +211,6 @@ private fun PermissionGate(content: @Composable () -> Unit) {
     }
 }
 
-// ── Data ─────────────────────────────────────────────────────────
-
 private data class PermissionState(
     val notifications: Boolean,
     val exactAlarms: Boolean,
@@ -135,7 +222,7 @@ private fun checkPermissions(context: Context): PermissionState {
         context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
             android.content.pm.PackageManager.PERMISSION_GRANTED
     } else {
-        true // Antes do Android 13, não precisa de runtime permission
+        true
     }
 
     val alarmGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -159,8 +246,6 @@ private fun checkPermissions(context: Context): PermissionState {
     )
 }
 
-// ── UI ───────────────────────────────────────────────────────────
-
 @Composable
 private fun PermissionScreen(
     state: PermissionState,
@@ -169,7 +254,6 @@ private fun PermissionScreen(
 ) {
     val context = LocalContext.current
 
-    // Launcher para POST_NOTIFICATIONS (runtime permission padrão)
     val notifLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission(),
     ) { onRefresh() }
@@ -181,7 +265,7 @@ private fun PermissionScreen(
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            text = "Permissões Necessárias",
+            text = stringResource(R.string.permissions_title),
             color = Color.White,
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
@@ -190,19 +274,18 @@ private fun PermissionScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         Text(
-            text = "O GtG precisa destas permissões para funcionar corretamente.",
+            text = stringResource(R.string.permissions_subtitle),
             color = Color.White.copy(alpha = 0.6f),
             fontSize = 14.sp,
         )
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // ── 1. POST_NOTIFICATIONS ────────────────────────────
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             PermissionCard(
                 icon = Icons.Default.Notifications,
-                title = "Notificações",
-                description = "Exibir alertas quando for hora do exercício.",
+                title = stringResource(R.string.permission_notifications_title),
+                description = stringResource(R.string.permission_notifications_description),
                 granted = state.notifications,
                 onRequest = {
                     notifLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
@@ -211,12 +294,11 @@ private fun PermissionScreen(
             Spacer(modifier = Modifier.height(12.dp))
         }
 
-        // ── 2. SCHEDULE_EXACT_ALARM ──────────────────────────
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             PermissionCard(
                 icon = Icons.Default.Alarm,
-                title = "Alarmes Exatos",
-                description = "Agendar lembretes no horário preciso.",
+                title = stringResource(R.string.permission_exact_alarm_title),
+                description = stringResource(R.string.permission_exact_alarm_description),
                 granted = state.exactAlarms,
                 onRequest = {
                     context.startActivity(
@@ -227,12 +309,11 @@ private fun PermissionScreen(
             Spacer(modifier = Modifier.height(12.dp))
         }
 
-        // ── 3. USE_FULL_SCREEN_INTENT ────────────────────────
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             PermissionCard(
                 icon = Icons.Default.Fullscreen,
-                title = "Tela Cheia",
-                description = "Exibir o exercício sobre a tela de bloqueio.",
+                title = stringResource(R.string.permission_full_screen_title),
+                description = stringResource(R.string.permission_full_screen_description),
                 granted = state.fullScreenIntent,
                 onRequest = {
                     context.startActivity(
@@ -247,13 +328,12 @@ private fun PermissionScreen(
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Botão de prosseguir mesmo sem todas (o app funciona parcialmente)
         TextButton(
             onClick = onDismiss,
             modifier = Modifier.align(Alignment.CenterHorizontally),
         ) {
             Text(
-                text = "Prosseguir mesmo assim",
+                text = stringResource(R.string.permissions_dismiss),
                 color = Color.White.copy(alpha = 0.4f),
                 fontSize = 14.sp,
             )
@@ -312,7 +392,10 @@ private fun PermissionCard(
                     ),
                     shape = RoundedCornerShape(8.dp),
                 ) {
-                    Text("Permitir", fontSize = 13.sp)
+                    Text(
+                        text = stringResource(R.string.permission_allow),
+                        fontSize = 13.sp,
+                    )
                 }
             }
         }

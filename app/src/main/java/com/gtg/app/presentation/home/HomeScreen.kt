@@ -56,11 +56,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gtg.app.R
 import com.gtg.app.domain.model.ExerciseBreakdown
 import com.gtg.app.domain.usecase.PlannedSet
 import com.gtg.app.presentation.theme.GtgPrimary
@@ -76,10 +78,10 @@ fun HomeScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
 
-    // Snackbar para aviso de ActivityWindow não configurada
+    val snackbarMessage = stringResource(R.string.home_window_snackbar)
     LaunchedEffect(state.noWindowConfigured) {
         if (state.noWindowConfigured) {
-            snackbarHostState.showSnackbar("Configure a janela de atividade antes de iniciar.")
+            snackbarHostState.showSnackbar(snackbarMessage)
             viewModel.dismissNoWindowWarning()
         }
     }
@@ -178,7 +180,10 @@ private fun RoutinePreviewCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = if (isSessionActive) "PRÓXIMOS HOJE" else "PROJEÇÃO DO DIA",
+                    text = stringResource(
+                        if (isSessionActive) R.string.home_routine_today
+                        else R.string.home_routine_projection,
+                    ),
                     color = Color.White.copy(alpha = 0.6f),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
@@ -195,7 +200,7 @@ private fun RoutinePreviewCard(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-                text = "Horários estimados — mudam se você atrasar ou pular sets.",
+                text = stringResource(R.string.home_routine_disclaimer),
                 color = Color.White.copy(alpha = 0.4f),
                 fontSize = 11.sp,
             )
@@ -257,7 +262,7 @@ private fun PreviewRow(set: PlannedSet) {
         )
         Spacer(modifier = Modifier.width(2.dp))
         Text(
-            text = "reps",
+            text = stringResource(R.string.home_reps),
             color = accent.copy(alpha = 0.7f),
             fontSize = 11.sp,
         )
@@ -312,14 +317,18 @@ private fun DailySummaryCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = "RESUMO DO DIA",
+                    text = stringResource(R.string.home_summary_today),
                     color = Color.White.copy(alpha = 0.6f),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.5.sp,
                 )
                 Text(
-                    text = "$setsCompleted / $dailyTarget sets",
+                    text = stringResource(
+                        R.string.home_sets_completed_format,
+                        setsCompleted,
+                        dailyTarget,
+                    ),
                     color = if (setsCompleted >= dailyTarget) GtgSuccess else GtgPrimary,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -343,12 +352,9 @@ private fun DailySummaryCard(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
-                StatItem(label = "Sets", value = "$setsCompleted")
-                StatItem(label = "Reps Totais", value = "$totalReps")
-                StatItem(
-                    label = "Volume",
-                    value = "$totalReps",
-                )
+                StatItem(label = stringResource(R.string.home_sets), value = "$setsCompleted")
+                StatItem(label = stringResource(R.string.home_reps_total), value = "$totalReps")
+                StatItem(label = stringResource(R.string.home_volume), value = "$totalReps")
             }
 
             // Detalhamento por exercício — só renderiza se houver dados.
@@ -358,7 +364,7 @@ private fun DailySummaryCard(
                 HorizontalDivider(color = GtgSurfaceVariant)
                 Spacer(modifier = Modifier.height(12.dp))
                 Text(
-                    text = "POR EXERCÍCIO",
+                    text = stringResource(R.string.home_breakdown_title),
                     color = Color.White.copy(alpha = 0.45f),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
@@ -392,7 +398,7 @@ private fun BreakdownRow(item: ExerciseBreakdown) {
             modifier = Modifier.weight(1f),
         )
         Text(
-            text = "${item.sets} sets",
+            text = stringResource(R.string.home_sets_count_format, item.sets),
             color = Color.White.copy(alpha = 0.45f),
             fontSize = 12.sp,
         )
@@ -405,7 +411,7 @@ private fun BreakdownRow(item: ExerciseBreakdown) {
         )
         Spacer(modifier = Modifier.width(2.dp))
         Text(
-            text = "reps",
+            text = stringResource(R.string.home_reps),
             color = GtgPrimary.copy(alpha = 0.6f),
             fontSize = 11.sp,
         )
@@ -442,14 +448,14 @@ private fun NoExerciseContent() {
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "Nenhum exercício configurado",
+            text = stringResource(R.string.home_no_exercise_title),
             color = Color.White.copy(alpha = 0.5f),
             fontSize = 16.sp,
             textAlign = TextAlign.Center,
         )
         Spacer(modifier = Modifier.height(8.dp))
         Text(
-            text = "Adicione um exercício para começar.",
+            text = stringResource(R.string.home_no_exercise_subtitle),
             color = Color.White.copy(alpha = 0.3f),
             fontSize = 14.sp,
             textAlign = TextAlign.Center,
@@ -476,7 +482,10 @@ private fun IdleContent(
         )
         Spacer(modifier = Modifier.height(24.dp))
         Text(
-            text = if (hasActivityWindow) "Pronto para treinar?" else "Configure antes de começar",
+            text = stringResource(
+                if (hasActivityWindow) R.string.home_ready_to_train
+                else R.string.home_configure_first,
+            ),
             color = Color.White.copy(alpha = 0.8f),
             fontSize = 20.sp,
             fontWeight = FontWeight.Medium,
@@ -505,15 +514,14 @@ private fun IdleContent(
                     Spacer(modifier = Modifier.width(12.dp))
                     Column {
                         Text(
-                            text = "Janela de atividade não configurada",
+                            text = stringResource(R.string.home_window_not_configured_title),
                             color = Color.White,
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = "Vá em Configs (aba inferior) e defina o horário " +
-                                "em que o app pode te notificar (ex: 09:00 → 17:00).",
+                            text = stringResource(R.string.home_window_not_configured_desc),
                             color = Color.White.copy(alpha = 0.6f),
                             fontSize = 12.sp,
                         )
@@ -545,7 +553,7 @@ private fun IdleContent(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = "INICIAR SESSÃO",
+                text = stringResource(R.string.home_start_session),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
             )
@@ -595,11 +603,13 @@ private fun CountdownContent(
     ) {
         // Status acima do nome do exercício
         Text(
-            text = when {
-                isOverdue -> "HORA DO GtG!"
-                remainingSeconds <= 60 -> "Quase lá"
-                else -> "Próximo exercício"
-            },
+            text = stringResource(
+                when {
+                    isOverdue -> R.string.home_gtg_time
+                    remainingSeconds <= 60 -> R.string.home_almost_there
+                    else -> R.string.home_next_exercise
+                },
+            ),
             color = if (isOverdue) GtgPrimary else Color.White.copy(alpha = 0.5f),
             fontSize = if (isOverdue) 16.sp else 14.sp,
             fontWeight = if (isOverdue) FontWeight.Bold else FontWeight.Normal,
@@ -614,7 +624,7 @@ private fun CountdownContent(
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "$targetReps reps",
+            text = stringResource(R.string.home_target_reps_format, targetReps),
             color = GtgPrimary,
             fontSize = 16.sp,
             fontWeight = FontWeight.Medium,
@@ -658,7 +668,7 @@ private fun CountdownContent(
                 if (isOverdue) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "atrasado",
+                        text = stringResource(R.string.home_overdue),
                         color = GtgPrimary.copy(alpha = 0.7f),
                         fontSize = 12.sp,
                         letterSpacing = 1.sp,
@@ -706,7 +716,9 @@ private fun CountdownContent(
             )
             Spacer(modifier = Modifier.width(8.dp))
             Text(
-                text = if (isOverdue) "FAZER CHECK" else "FAZER CHECK AGORA",
+                text = stringResource(
+                    if (isOverdue) R.string.home_do_check else R.string.home_do_check_now,
+                ),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
             )
@@ -716,7 +728,7 @@ private fun CountdownContent(
         if (!canCheck) {
             Spacer(modifier = Modifier.height(8.dp))
             Text(
-                text = "Check libera 5 min antes",
+                text = stringResource(R.string.home_check_unlocks),
                 color = Color.White.copy(alpha = 0.35f),
                 fontSize = 11.sp,
             )
@@ -742,7 +754,7 @@ private fun CountdownContent(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "Silenciar (sem fazer check)",
+                    text = stringResource(R.string.home_silence_no_check),
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium,
                 )
@@ -769,7 +781,7 @@ private fun CountdownContent(
                     modifier = Modifier.size(18.dp),
                 )
                 Spacer(modifier = Modifier.width(4.dp))
-                Text(text = "Parar", fontSize = 14.sp)
+                Text(text = stringResource(R.string.home_stop), fontSize = 14.sp)
             }
         }
     }

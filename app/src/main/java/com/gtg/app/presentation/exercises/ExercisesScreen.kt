@@ -43,9 +43,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gtg.app.R
 import com.gtg.app.domain.model.Exercise
 import com.gtg.app.presentation.theme.GtgError
 import com.gtg.app.presentation.theme.GtgPrimary
@@ -65,7 +67,10 @@ fun ExercisesScreen(viewModel: ExercisesViewModel = hiltViewModel()) {
                 containerColor = GtgPrimary,
                 contentColor = Color.White,
             ) {
-                Icon(Icons.Default.Add, contentDescription = "Adicionar exercício")
+                Icon(
+                    imageVector = Icons.Default.Add,
+                    contentDescription = stringResource(R.string.exercises_add),
+                )
             }
         },
     ) { padding ->
@@ -76,7 +81,7 @@ fun ExercisesScreen(viewModel: ExercisesViewModel = hiltViewModel()) {
                 .padding(horizontal = 20.dp, vertical = 16.dp),
         ) {
             Text(
-                text = "Exercícios",
+                text = stringResource(R.string.exercises_title),
                 color = Color.White,
                 fontSize = 24.sp,
                 fontWeight = FontWeight.Bold,
@@ -158,7 +163,11 @@ private fun ExerciseCard(
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Max: ${exercise.maxReps}  ·  ${exercise.targetPercentage}%",
+                        text = stringResource(
+                            R.string.exercises_card_max_format,
+                            exercise.maxReps,
+                            exercise.targetPercentage,
+                        ),
                         color = Color.White.copy(alpha = 0.5f * contentAlpha),
                         fontSize = 13.sp,
                     )
@@ -172,7 +181,7 @@ private fun ExerciseCard(
                         fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        text = "reps",
+                        text = stringResource(R.string.home_reps),
                         color = GtgPrimary.copy(alpha = 0.7f * accentAlpha),
                         fontSize = 11.sp,
                     )
@@ -187,7 +196,10 @@ private fun ExerciseCard(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
-                    text = if (exercise.isActive) "Na rotação" else "Inativo",
+                    text = stringResource(
+                        if (exercise.isActive) R.string.exercises_active
+                        else R.string.exercises_inactive,
+                    ),
                     color = if (exercise.isActive) {
                         GtgPrimary
                     } else {
@@ -239,13 +251,13 @@ private fun EmptyState() {
         )
         Spacer(modifier = Modifier.height(16.dp))
         Text(
-            text = "Nenhum exercício cadastrado",
+            text = stringResource(R.string.exercises_empty_title),
             color = Color.White.copy(alpha = 0.4f),
             fontSize = 16.sp,
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
-            text = "Toque no + para adicionar.",
+            text = stringResource(R.string.exercises_empty_hint),
             color = Color.White.copy(alpha = 0.3f),
             fontSize = 14.sp,
         )
@@ -282,7 +294,10 @@ private fun ExerciseDialog(
         containerColor = GtgSurface,
         title = {
             Text(
-                text = if (isEditing) "Editar Exercício" else "Novo Exercício",
+                text = stringResource(
+                    if (isEditing) R.string.exercises_dialog_edit
+                    else R.string.exercises_dialog_new,
+                ),
                 color = Color.White,
                 fontWeight = FontWeight.Bold,
             )
@@ -292,7 +307,7 @@ private fun ExerciseDialog(
                 OutlinedTextField(
                     value = name,
                     onValueChange = onNameChange,
-                    label = { Text("Nome do exercício") },
+                    label = { Text(stringResource(R.string.exercises_dialog_name)) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     colors = textFieldColors,
@@ -303,7 +318,7 @@ private fun ExerciseDialog(
                 OutlinedTextField(
                     value = maxReps,
                     onValueChange = { v -> onMaxRepsChange(v.filter { it.isDigit() }) },
-                    label = { Text("Repetições máximas") },
+                    label = { Text(stringResource(R.string.exercises_dialog_max_reps)) },
                     singleLine = true,
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
@@ -313,7 +328,7 @@ private fun ExerciseDialog(
                 Spacer(modifier = Modifier.height(16.dp))
 
                 Text(
-                    text = "Porcentagem alvo: $percentage%",
+                    text = stringResource(R.string.exercises_dialog_target_percent, percentage),
                     color = Color.White.copy(alpha = 0.7f),
                     fontSize = 14.sp,
                 )
@@ -332,7 +347,10 @@ private fun ExerciseDialog(
 
                 if (computedTarget > 0) {
                     Text(
-                        text = "Alvo calculado: ${computedTarget.roundToInt()} reps",
+                        text = stringResource(
+                            R.string.exercises_dialog_computed_target,
+                            computedTarget.roundToInt(),
+                        ),
                         color = GtgPrimary,
                         fontSize = 14.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -342,12 +360,19 @@ private fun ExerciseDialog(
         },
         confirmButton = {
             TextButton(onClick = onSave) {
-                Text("Salvar", color = GtgPrimary, fontWeight = FontWeight.Bold)
+                Text(
+                    text = stringResource(R.string.common_save),
+                    color = GtgPrimary,
+                    fontWeight = FontWeight.Bold,
+                )
             }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) {
-                Text("Cancelar", color = Color.White.copy(alpha = 0.5f))
+                Text(
+                    text = stringResource(R.string.common_cancel),
+                    color = Color.White.copy(alpha = 0.5f),
+                )
             }
         },
     )

@@ -33,9 +33,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
+import com.gtg.app.R
 import com.gtg.app.domain.model.ExerciseBreakdown
 import com.gtg.app.presentation.theme.GtgPrimary
 import com.gtg.app.presentation.theme.GtgSurface
@@ -52,7 +54,7 @@ fun StatisticsScreen(viewModel: StatisticsViewModel = hiltViewModel()) {
             .padding(horizontal = 20.dp, vertical = 16.dp),
     ) {
         Text(
-            text = "Estatísticas",
+            text = stringResource(R.string.statistics_title),
             color = Color.White,
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
@@ -65,26 +67,27 @@ fun StatisticsScreen(viewModel: StatisticsViewModel = hiltViewModel()) {
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
+            val repsLabel = stringResource(R.string.home_reps)
             SummaryCard(
                 modifier = Modifier.weight(1f),
-                title = "HOJE",
+                title = stringResource(R.string.statistics_today),
                 primaryValue = formatReps(state.todayReps),
-                primaryLabel = "reps",
-                secondaryValue = "${state.todaySets} sets",
+                primaryLabel = repsLabel,
+                secondaryValue = stringResource(R.string.home_sets_count_format, state.todaySets),
             )
             SummaryCard(
                 modifier = Modifier.weight(1f),
-                title = "SEMANA",
+                title = stringResource(R.string.statistics_week),
                 primaryValue = formatReps(state.weekReps),
-                primaryLabel = "reps",
-                secondaryValue = "${state.weekSets} sets",
+                primaryLabel = repsLabel,
+                secondaryValue = stringResource(R.string.home_sets_count_format, state.weekSets),
             )
             SummaryCard(
                 modifier = Modifier.weight(1f),
-                title = "MÊS",
+                title = stringResource(R.string.statistics_month),
                 primaryValue = formatReps(state.monthReps),
-                primaryLabel = "reps",
-                secondaryValue = "${state.monthSets} sets",
+                primaryLabel = repsLabel,
+                secondaryValue = stringResource(R.string.home_sets_count_format, state.monthSets),
             )
         }
 
@@ -92,7 +95,7 @@ fun StatisticsScreen(viewModel: StatisticsViewModel = hiltViewModel()) {
 
         // ── Gráfico de barras: últimos 7 dias ────────────────
         Text(
-            text = "ÚLTIMOS 7 DIAS",
+            text = stringResource(R.string.statistics_last_7_days),
             color = Color.White.copy(alpha = 0.5f),
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
@@ -118,7 +121,7 @@ fun StatisticsScreen(viewModel: StatisticsViewModel = hiltViewModel()) {
 
         // ── Detalhamento por exercício (período selecionável) ─
         Text(
-            text = "POR EXERCÍCIO",
+            text = stringResource(R.string.statistics_by_exercise),
             color = Color.White.copy(alpha = 0.5f),
             fontSize = 12.sp,
             fontWeight = FontWeight.Bold,
@@ -191,11 +194,14 @@ private fun PeriodChip(
     }
 }
 
-private fun periodLabel(period: StatsPeriod): String = when (period) {
-    StatsPeriod.TODAY -> "Hoje"
-    StatsPeriod.WEEK -> "Esta semana"
-    StatsPeriod.MONTH -> "Este mês"
-}
+@Composable
+private fun periodLabel(period: StatsPeriod): String = stringResource(
+    when (period) {
+        StatsPeriod.TODAY -> R.string.statistics_period_today
+        StatsPeriod.WEEK -> R.string.statistics_period_week
+        StatsPeriod.MONTH -> R.string.statistics_period_month
+    },
+)
 
 // ── Breakdown Card ───────────────────────────────────────────────
 
@@ -217,11 +223,13 @@ private fun BreakdownCard(
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
-                    text = when (period) {
-                        StatsPeriod.TODAY -> "Nenhum exercício registrado hoje."
-                        StatsPeriod.WEEK -> "Nenhum exercício esta semana."
-                        StatsPeriod.MONTH -> "Nenhum exercício este mês."
-                    },
+                    text = stringResource(
+                        when (period) {
+                            StatsPeriod.TODAY -> R.string.statistics_empty_today
+                            StatsPeriod.WEEK -> R.string.statistics_empty_week
+                            StatsPeriod.MONTH -> R.string.statistics_empty_month
+                        },
+                    ),
                     color = Color.White.copy(alpha = 0.4f),
                     fontSize = 13.sp,
                     textAlign = TextAlign.Center,

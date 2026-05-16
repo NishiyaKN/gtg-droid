@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavDestination.Companion.hierarchy
@@ -45,6 +46,7 @@ fun GtgNavHost() {
                     val selected = currentDestination?.hierarchy?.any {
                         it.route == route.route
                     } == true
+                    val label = stringResource(route.labelRes)
 
                     NavigationBarItem(
                         selected = selected,
@@ -60,12 +62,12 @@ fun GtgNavHost() {
                         icon = {
                             Icon(
                                 imageVector = route.icon,
-                                contentDescription = route.label,
+                                contentDescription = label,
                             )
                         },
                         label = {
                             Text(
-                                text = route.label,
+                                text = label,
                                 fontSize = 11.sp,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                             )
