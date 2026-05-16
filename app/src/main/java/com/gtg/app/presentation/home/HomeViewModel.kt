@@ -26,7 +26,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.FlowPreview
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.BufferOverflow
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -271,9 +273,17 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             exerciseLogRepository.observeAll().collectLatest {
                 val today = LocalDate.now()
-                val sets = exerciseLogRepository.totalSetsBetween(today, today)
-                val reps = exerciseLogRepository.totalRepsBetween(today, today)
-                val breakdown = getExerciseBreakdown(today, today)
+
+                // Paraleliza as 3 queries — sao reads independentes da mesma
+                // tabela; SQLite serializa internamente mas o dispatch e
+                // concorrente, e a coroutine espera so o max-latencia em vez
+                // da soma das 3.
+                val (sets, reps, breakdown) = coroutineScope {
+                    val setsDef = async { exerciseLogRepository.totalSetsBetween(today, today) }
+                    val repsDef = async { exerciseLogRepository.totalRepsBetween(today, today) }
+                    val breakdownDef = async { getExerciseBreakdown(today, today) }
+                    Triple(setsDef.await(), repsDef.await(), breakdownDef.await())
+                }
 
                 _state.update { current ->
                     current.copy(
