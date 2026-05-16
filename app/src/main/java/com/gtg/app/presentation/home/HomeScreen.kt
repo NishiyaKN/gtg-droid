@@ -1,15 +1,12 @@
 package com.gtg.app.presentation.home
 
-import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -112,9 +109,14 @@ fun HomeScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             // ── Conteúdo central: muda conforme estado ──────────
-            AnimatedContent(
+            // Crossfade 120ms (era AnimatedContent fade 300ms). Encurtado para
+            // não empilhar com o fade do NavHost (140ms) — dois fades de 300ms
+            // somavam ~440ms perceptual ao entrar na Home logo após
+            // start/stop session, dando sensação de "lento". 120ms mantém a
+            // transição visualmente, mas dentro do envelope snappy.
+            Crossfade(
                 targetState = resolveScreenState(state),
-                transitionSpec = { fadeIn(tween(300)) togetherWith fadeOut(tween(300)) },
+                animationSpec = tween(durationMillis = 120),
                 label = "home_content",
                 modifier = Modifier.fillMaxWidth(),
             ) { screenState ->
