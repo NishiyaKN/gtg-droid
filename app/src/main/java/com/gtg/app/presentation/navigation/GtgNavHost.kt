@@ -21,6 +21,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.gtg.app.presentation.common.AdaptiveText
 import com.gtg.app.presentation.exercises.ExercisesScreen
 import com.gtg.app.presentation.home.HomeScreen
 import com.gtg.app.presentation.schedule.ScheduleScreen
@@ -66,7 +67,11 @@ fun GtgNavHost() {
                             )
                         },
                         label = {
-                            Text(
+                            // Em PT-BR "Estatísticas" (13 chars) e
+                            // "Configurações" (13 chars) eram cortados sem
+                            // ellipsis em 320dp; AdaptiveText garante "..."
+                            // se ainda assim não couber.
+                            AdaptiveText(
                                 text = label,
                                 fontSize = 11.sp,
                                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,

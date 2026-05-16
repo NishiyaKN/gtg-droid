@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -65,7 +66,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.gtg.app.R
 import com.gtg.app.domain.model.ExerciseBreakdown
 import com.gtg.app.domain.usecase.PlannedSet
+import com.gtg.app.presentation.common.AdaptiveText
+import com.gtg.app.presentation.common.AutoShrinkText
 import com.gtg.app.presentation.theme.GtgPrimary
+import com.gtg.app.presentation.theme.countdownDisplay
 import com.gtg.app.presentation.theme.GtgSuccess
 import com.gtg.app.presentation.theme.GtgSurface
 import com.gtg.app.presentation.theme.GtgSurfaceBright
@@ -247,7 +251,7 @@ private fun PreviewRow(set: PlannedSet) {
 
         Spacer(modifier = Modifier.width(12.dp))
 
-        Text(
+        AdaptiveText(
             text = set.exerciseName,
             color = Color.White.copy(alpha = 0.85f),
             fontSize = 14.sp,
@@ -323,7 +327,7 @@ private fun DailySummaryCard(
                     fontWeight = FontWeight.Bold,
                     letterSpacing = 1.5.sp,
                 )
-                Text(
+                AdaptiveText(
                     text = stringResource(
                         R.string.home_sets_completed_format,
                         setsCompleted,
@@ -390,7 +394,7 @@ private fun BreakdownRow(item: ExerciseBreakdown) {
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(
+        AdaptiveText(
             text = item.name,
             color = Color.White.copy(alpha = 0.85f),
             fontSize = 14.sp,
@@ -537,7 +541,7 @@ private fun IdleContent(
             enabled = hasActivityWindow,
             modifier = Modifier
                 .fillMaxWidth(0.7f)
-                .height(56.dp),
+                .heightIn(min = 56.dp),
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = GtgPrimary,
@@ -652,17 +656,16 @@ private fun CountdownContent(
                     .padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text(
+                // 56sp Monospace é o teto; AutoShrinkText cai até 32sp quando
+                // o formato "-HH:MM:SS" (9 chars) não cabe na Card em telas
+                // estreitas. Antes era um switch manual 56sp↔44sp que ainda
+                // estourava em 320dp.
+                AutoShrinkText(
                     text = formatCountdown(remainingSeconds),
+                    style = MaterialTheme.typography.countdownDisplay,
+                    minFontSize = 32.sp,
                     color = accentColor,
-                    // Reduz quando passa de 1h (formato -HH:MM:SS, 9+ chars)
-                    // — em 56sp + Monospace, o texto estourava a Card e quebrava
-                    // linha, deixando o último dígito alinhado abaixo do "-".
-                    fontSize = if (kotlin.math.abs(remainingSeconds) >= 3600) 44.sp else 56.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
-                    softWrap = false,
-                    maxLines = 1,
+                    modifier = Modifier.fillMaxWidth(),
                 )
 
                 if (isOverdue) {
@@ -699,7 +702,7 @@ private fun CountdownContent(
             enabled = canCheck,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .heightIn(min = 56.dp)
                 .let { if (isOverdue) it.scale(pulseScale) else it },
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(

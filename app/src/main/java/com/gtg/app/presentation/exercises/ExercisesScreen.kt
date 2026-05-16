@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gtg.app.R
 import com.gtg.app.domain.model.Exercise
+import com.gtg.app.presentation.common.AdaptiveText
 import com.gtg.app.presentation.theme.GtgError
 import com.gtg.app.presentation.theme.GtgPrimary
 import com.gtg.app.presentation.theme.GtgSurface
@@ -155,14 +156,15 @@ private fun ExerciseCard(
                 Spacer(modifier = Modifier.width(16.dp))
 
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
+                    AdaptiveText(
                         text = exercise.name,
                         color = Color.White.copy(alpha = contentAlpha),
                         fontSize = 17.sp,
                         fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
                     )
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
+                    AdaptiveText(
                         text = stringResource(
                             R.string.exercises_card_max_format,
                             exercise.maxReps,

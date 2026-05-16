@@ -6,11 +6,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -39,6 +42,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.gtg.app.R
 import com.gtg.app.domain.model.ExerciseBreakdown
+import com.gtg.app.presentation.common.AdaptiveText
 import com.gtg.app.presentation.theme.GtgPrimary
 import com.gtg.app.presentation.theme.GtgSurface
 import com.gtg.app.presentation.theme.GtgSurfaceVariant
@@ -63,27 +67,33 @@ fun StatisticsScreen(viewModel: StatisticsViewModel = hiltViewModel()) {
         Spacer(modifier = Modifier.height(20.dp))
 
         // ── Cards de resumo (3 períodos) ────────────────────
+        // `height(IntrinsicSize.Max)` no Row + `fillMaxHeight()` em cada card
+        // garante que os 3 cards tenham a MESMA altura, igual ao maior conteúdo.
+        // Sem isso, "0" (1 char) e "204" (3 chars) geram alturas distintas
+        // mesmo com `weight(1f)` igualando a largura.
         Row(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Max),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             val repsLabel = stringResource(R.string.home_reps)
             SummaryCard(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
                 title = stringResource(R.string.statistics_today),
                 primaryValue = formatReps(state.todayReps),
                 primaryLabel = repsLabel,
                 secondaryValue = stringResource(R.string.home_sets_count_format, state.todaySets),
             )
             SummaryCard(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
                 title = stringResource(R.string.statistics_week),
                 primaryValue = formatReps(state.weekReps),
                 primaryLabel = repsLabel,
                 secondaryValue = stringResource(R.string.home_sets_count_format, state.weekSets),
             )
             SummaryCard(
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(1f).fillMaxHeight(),
                 title = stringResource(R.string.statistics_month),
                 primaryValue = formatReps(state.monthReps),
                 primaryLabel = repsLabel,
@@ -108,11 +118,14 @@ fun StatisticsScreen(viewModel: StatisticsViewModel = hiltViewModel()) {
             colors = CardDefaults.cardColors(containerColor = GtgSurface),
             shape = RoundedCornerShape(16.dp),
         ) {
+            // heightIn ao invés de height fixo: em telas pequenas (altura util
+                // ~400dp), 200dp era 50% da tela inteira só pro gráfico. Faixa
+                // 160..240 ajusta visualmente em phones pequenos e tablets.
             WeeklyBarChart(
                 data = state.last7Days,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(200.dp)
+                    .heightIn(min = 160.dp, max = 240.dp)
                     .padding(16.dp),
             )
         }
@@ -261,11 +274,19 @@ private fun SummaryCard(
     primaryLabel: String,
     secondaryValue: String,
 ) {
-    // fontSize cai com o número de caracteres. Sem isto, 3+ dígitos empurram
-    // o "reps" para sobrar tão pouca largura que ele quebra letra-a-letra.
-    val primaryFontSize = when {
-        primaryValue.length <= 2 -> 36.sp
-        primaryValue.length == 3 -> 28.sp
+    // Layout vertical: TITLE / valor / "reps" / sets count. Stacked impede
+    // o label "reps" de disputar largura com o número, eliminando o clipping
+    // do "s" em telas estreitas. O fontSize do valor ainda escala com a
+    // contagem de caracteres — mas agora apenas para preservar hierarquia
+    // visual e não como remediação de overflow.
+    //
+    // formatReps abrevia milhares ("1.2k", "12k"), então `primaryValue.length`
+    // não passa de 5 chars na prática (ex: "999k", "9.9k"). O escalonamento
+    // abaixo cobre essa faixa em qualquer largura razoável de tela.
+    val primaryFontSize = when (primaryValue.length) {
+        1, 2 -> 36.sp
+        3 -> 32.sp
+        4 -> 26.sp
         else -> 22.sp
     }
 
@@ -275,8 +296,11 @@ private fun SummaryCard(
         shape = RoundedCornerShape(16.dp),
     ) {
         Column(
-            modifier = Modifier.padding(16.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             Text(
                 text = title,
@@ -284,34 +308,28 @@ private fun SummaryCard(
                 fontSize = 11.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.5.sp,
+                maxLines = 1,
             )
-            Spacer(modifier = Modifier.height(8.dp))
-            Row(
-                verticalAlignment = Alignment.Bottom,
-            ) {
-                Text(
-                    text = primaryValue,
-                    color = GtgPrimary,
-                    fontSize = primaryFontSize,
-                    fontWeight = FontWeight.Bold,
-                    softWrap = false,
-                    maxLines = 1,
-                )
-                Spacer(modifier = Modifier.width(4.dp))
-                Text(
-                    text = primaryLabel,
-                    color = GtgPrimary.copy(alpha = 0.7f),
-                    fontSize = 14.sp,
-                    softWrap = false,
-                    maxLines = 1,
-                    modifier = Modifier.padding(bottom = 4.dp),
-                )
-            }
-            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = primaryValue,
+                color = GtgPrimary,
+                fontSize = primaryFontSize,
+                fontWeight = FontWeight.Bold,
+                softWrap = false,
+                maxLines = 1,
+                modifier = Modifier.padding(top = 2.dp),
+            )
+            Text(
+                text = primaryLabel,
+                color = GtgPrimary.copy(alpha = 0.7f),
+                fontSize = 12.sp,
+                softWrap = false,
+                maxLines = 1,
+            )
             Text(
                 text = secondaryValue,
                 color = Color.White.copy(alpha = 0.5f),
-                fontSize = 13.sp,
+                fontSize = 12.sp,
                 softWrap = false,
                 maxLines = 1,
             )
@@ -337,7 +355,7 @@ private fun ExerciseRow(item: ExerciseBreakdown) {
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(modifier = Modifier.weight(1f)) {
-            Text(
+            AdaptiveText(
                 text = item.name,
                 color = Color.White,
                 fontSize = 15.sp,

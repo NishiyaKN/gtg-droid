@@ -20,15 +20,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,10 +51,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
 import com.gtg.app.R
+import com.gtg.app.presentation.common.AdaptiveText
+import com.gtg.app.presentation.common.AutoShrinkText
 import com.gtg.app.presentation.theme.GtgBackground
 import com.gtg.app.presentation.theme.GtgPrimary
 import com.gtg.app.presentation.theme.GtgSurface
 import com.gtg.app.presentation.theme.GtgTheme
+import com.gtg.app.presentation.theme.repsDisplay
+import com.gtg.app.presentation.theme.titleExercise
 import dagger.hilt.android.AndroidEntryPoint
 
 /**
@@ -187,10 +195,17 @@ private fun AlarmScreen(
                 ),
             ),
     ) {
+        // verticalScroll + Arrangement.Center: em portrait normal o conteúdo
+        // cabe e fica visualmente centralizado; em landscape ou telas curtas
+        // o usuário pode scrollar até botões. Sem o scroll, em landscape o
+        // botão "FAZER CHECK" ficava fora da viewport.
+        // Padding horizontal reduzido para 20dp (era 32dp) — em 320dp sobravam
+        // apenas 256dp para reps "1500" em 72sp, que estouravam.
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 32.dp),
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 20.dp, vertical = 24.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center,
         ) {
@@ -227,22 +242,29 @@ private fun AlarmScreen(
             Spacer(modifier = Modifier.height(24.dp))
 
             // ── Nome do exercício ───────────────────────────────
-            Text(
+            // maxLines=2 + Ellipsis: nomes longos ("Supino inclinado com barra
+            // olímpica") quebram em 2 linhas em vez de estourar a tela em
+            // 320dp; truncam com "…" se passarem disso.
+            AdaptiveText(
                 text = exerciseName,
+                style = MaterialTheme.typography.titleExercise,
                 color = Color.White.copy(alpha = 0.85f),
-                fontSize = 20.sp,
-                fontWeight = FontWeight.Medium,
+                maxLines = 2,
                 textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth(),
             )
 
             Spacer(modifier = Modifier.height(12.dp))
 
             // ── Reps alvo — grande e destacado ──────────────────
-            Text(
+            // AutoShrink: "1500" reps em 72sp não cabia em 320dp; cai até 36sp.
+            AutoShrinkText(
                 text = "$targetReps",
+                style = MaterialTheme.typography.repsDisplay,
+                minFontSize = 36.sp,
                 color = GtgPrimary,
-                fontSize = 72.sp,
                 fontWeight = FontWeight.ExtraBold,
+                modifier = Modifier.fillMaxWidth(),
             )
 
             Text(
@@ -254,22 +276,26 @@ private fun AlarmScreen(
             Spacer(modifier = Modifier.height(48.dp))
 
             // ── Botão FAZER CHECK — massivo ─────────────────────
+            // heightIn(min) deixa o botão crescer se o texto quebrar em 2
+            // linhas com font-scale XL ou se a tradução for longa
+            // ("FAZER CHECK AGORA").
             Button(
                 onClick = onCheck,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(64.dp),
+                    .heightIn(min = 64.dp),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = GtgPrimary,
                     contentColor = Color.White,
                 ),
             ) {
-                Text(
+                AdaptiveText(
                     text = stringResource(R.string.alarm_do_check),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
-                    letterSpacing = 1.sp,
+                    maxLines = 2,
+                    textAlign = TextAlign.Center,
                 )
             }
 

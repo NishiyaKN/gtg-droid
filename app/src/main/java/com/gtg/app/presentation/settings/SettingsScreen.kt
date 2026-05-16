@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -76,6 +77,7 @@ import com.gtg.app.R
 import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.domain.repository.CalendarInfo
 import com.gtg.app.presentation.alarm.AlarmSoundPlayer
+import com.gtg.app.presentation.common.AdaptiveText
 import com.gtg.app.presentation.common.WheelTimePicker
 import com.gtg.app.presentation.theme.GtgError
 import com.gtg.app.presentation.theme.GtgPrimary
@@ -313,29 +315,36 @@ private fun ActiveDaysSection(
         title = stringResource(R.string.settings_active_days_title),
         description = stringResource(R.string.settings_active_days_description),
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            java.time.DayOfWeek.entries.forEach { day ->
-                val selected = day in active
-                Box(
-                    modifier = Modifier
-                        .size(36.dp)
-                        .clip(androidx.compose.foundation.shape.CircleShape)
-                        .background(if (selected) GtgPrimary else GtgSurfaceVariant)
-                        .clickable { onToggle(day) },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = day.getDisplayName(
-                            java.time.format.TextStyle.NARROW,
-                            locale,
-                        ),
-                        color = if (selected) Color.White else Color.White.copy(alpha = 0.5f),
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
+        // 7 chips de 36dp em 320dp - padding (40dp screen + 32dp card) ≈ 248dp
+        // úteis. 7×36 = 252dp já estoura, daí o chip "S" pode clipar.
+        // Reduzimos para 30dp em narrow para garantir folga.
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val narrow = maxWidth < 320.dp
+            val chipSize = if (narrow) 30.dp else 36.dp
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                java.time.DayOfWeek.entries.forEach { day ->
+                    val selected = day in active
+                    Box(
+                        modifier = Modifier
+                            .size(chipSize)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                            .background(if (selected) GtgPrimary else GtgSurfaceVariant)
+                            .clickable { onToggle(day) },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = day.getDisplayName(
+                                java.time.format.TextStyle.NARROW,
+                                locale,
+                            ),
+                            color = if (selected) Color.White else Color.White.copy(alpha = 0.5f),
+                            fontSize = if (narrow) 11.sp else 13.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
             }
         }
@@ -543,7 +552,7 @@ private fun SoundSection(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(modifier = Modifier.weight(1f)) {
-                Text(
+                AdaptiveText(
                     text = title,
                     color = GtgPrimary,
                     fontSize = 16.sp,
@@ -890,14 +899,14 @@ private fun CalendarPickerRow(
         )
         Spacer(modifier = Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
+            AdaptiveText(
                 text = info.displayName,
                 color = Color.White,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
             )
             if (info.accountName.isNotBlank() && info.accountName != info.displayName) {
-                Text(
+                AdaptiveText(
                     text = info.accountName,
                     color = Color.White.copy(alpha = 0.45f),
                     fontSize = 11.sp,
@@ -1154,16 +1163,17 @@ private fun SectionCard(
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 Column {
-                    Text(
+                    AdaptiveText(
                         text = title,
                         color = Color.White,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
-                    Text(
+                    AdaptiveText(
                         text = description,
                         color = Color.White.copy(alpha = 0.5f),
                         fontSize = 12.sp,
+                        maxLines = 2,
                     )
                 }
             }

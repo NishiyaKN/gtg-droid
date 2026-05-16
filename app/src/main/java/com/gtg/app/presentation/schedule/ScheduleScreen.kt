@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -17,6 +18,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,6 +67,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.gtg.app.R
 import com.gtg.app.domain.model.InactivityBlock
 import com.gtg.app.domain.model.Recurrence
+import com.gtg.app.presentation.common.AdaptiveText
 import com.gtg.app.presentation.common.WheelTimePicker
 import com.gtg.app.presentation.theme.GtgError
 import com.gtg.app.presentation.theme.GtgPrimary
@@ -623,12 +627,15 @@ private fun PersonalizeCalendarDialog(
             )
         },
         text = {
-            Column {
-                Text(
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                // Calendar event titles podem ser muito longos — maxLines=2 +
+                // ellipsis evita estourar o dialog em telas estreitas.
+                AdaptiveText(
                     text = target.block.title.ifBlank { stringResource(R.string.common_busy) },
                     color = GtgPrimary,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
                 )
                 Spacer(modifier = Modifier.height(4.dp))
                 Text(
@@ -682,7 +689,7 @@ private fun ExistingBlockRow(item: DisplayBlock) {
         )
         Spacer(modifier = Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
-            Text(
+            AdaptiveText(
                 text = item.block.title.ifBlank {
                     stringResource(
                         if (isCalendar) R.string.common_busy
@@ -692,7 +699,6 @@ private fun ExistingBlockRow(item: DisplayBlock) {
                 color = Color.White,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Medium,
-                maxLines = 1,
             )
             // Para manuais recorrentes mostra a regra (ex: "Todos os dias"),
             // para o resto o horário já é informativo o suficiente.
@@ -816,7 +822,10 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
             )
         },
         text = {
-            Column {
+            // verticalScroll é defensivo: em portrait curto (~600dp) ou
+            // landscape, recorrência WEEKLY + 7 chips + texto helper + lista
+            // de existingForDay pode estourar a altura do dialog.
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
                 // Mostra o que já existe naquele dia — só quando criando (não editando).
                 if (!isEditing && existingForDay.isNotEmpty()) {
                     Text(
@@ -882,26 +891,35 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
                 // ── Horários (só visíveis se não for dia inteiro) ──
                 if (!state.dialogAllDay) {
                     Spacer(modifier = Modifier.height(12.dp))
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceEvenly,
-                    ) {
-                        WheelTimePicker(
-                            label = stringResource(R.string.settings_time_start),
-                            hour = state.dialogStartHour,
-                            minute = state.dialogStartMinute,
-                        ) { h, m -> viewModel.updateStartTime(h, m) }
-                        Text(
-                            text = "→",
-                            color = Color.White.copy(alpha = 0.5f),
-                            fontWeight = FontWeight.Bold,
-                        )
-                        WheelTimePicker(
-                            label = stringResource(R.string.settings_time_end),
-                            hour = state.dialogEndHour,
-                            minute = state.dialogEndMinute,
-                        ) { h, m -> viewModel.updateEndTime(h, m) }
+                    // BoxWithConstraints adapta a largura individual de cada
+                    // picker: em 320dp (~250dp disponíveis no dialog), 2 pickers
+                    // de 64dp + ":" + "→" + ":" + 2 pickers de 64dp = ~290dp,
+                    // estourando. Em narrow caímos para 44dp por roleta.
+                    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                        val pickerWidth = if (maxWidth < 320.dp) 44.dp else 64.dp
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceEvenly,
+                        ) {
+                            WheelTimePicker(
+                                label = stringResource(R.string.settings_time_start),
+                                hour = state.dialogStartHour,
+                                minute = state.dialogStartMinute,
+                                pickerWidth = pickerWidth,
+                            ) { h, m -> viewModel.updateStartTime(h, m) }
+                            Text(
+                                text = "→",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontWeight = FontWeight.Bold,
+                            )
+                            WheelTimePicker(
+                                label = stringResource(R.string.settings_time_end),
+                                hour = state.dialogEndHour,
+                                minute = state.dialogEndMinute,
+                                pickerWidth = pickerWidth,
+                            ) { h, m -> viewModel.updateEndTime(h, m) }
+                        }
                     }
                 }
 
@@ -949,24 +967,45 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
                             fontSize = 13.sp,
                         )
                         Spacer(modifier = Modifier.height(6.dp))
-                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                            DayOfWeek.entries.forEach { day ->
-                                val selected = day in state.dialogWeekDays
-                                Box(
-                                    modifier = Modifier
-                                        .size(36.dp)
-                                        .clip(CircleShape)
-                                        .background(if (selected) GtgPrimary else GtgSurfaceVariant)
-                                        .clickable { viewModel.toggleWeekDay(day) },
-                                    contentAlignment = Alignment.Center,
-                                ) {
-                                    Text(
-                                        text = day.getDisplayName(TextStyle.NARROW, Locale("pt", "BR")),
-                                        color = if (selected) Color.White else Color.White.copy(alpha = 0.5f),
-                                        fontSize = 13.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        textAlign = TextAlign.Center,
-                                    )
+                        // 7 chips de 36dp + 6dp gap = 288dp. Em 320dp menos
+                        // padding do dialog (~250dp util), estouram. Adaptamos
+                        // tamanho e espaço por BoxWithConstraints. Reduz para
+                        // 30dp / spacedBy 2dp em narrow.
+                        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                            val narrow = maxWidth < 320.dp
+                            val chipSize = if (narrow) 30.dp else 36.dp
+                            val gap = if (narrow) 2.dp else 6.dp
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(gap),
+                            ) {
+                                DayOfWeek.entries.forEach { day ->
+                                    val selected = day in state.dialogWeekDays
+                                    Box(
+                                        modifier = Modifier
+                                            .size(chipSize)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (selected) GtgPrimary else GtgSurfaceVariant,
+                                            )
+                                            .clickable { viewModel.toggleWeekDay(day) },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            text = day.getDisplayName(
+                                                TextStyle.NARROW,
+                                                Locale("pt", "BR"),
+                                            ),
+                                            color = if (selected) {
+                                                Color.White
+                                            } else {
+                                                Color.White.copy(alpha = 0.5f)
+                                            },
+                                            fontSize = if (narrow) 11.sp else 13.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            textAlign = TextAlign.Center,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -981,7 +1020,10 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
                             label = { Text(stringResource(R.string.schedule_dialog_day_of_month)) },
                             singleLine = true,
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                            modifier = Modifier.width(150.dp),
+                            // fillMaxWidth: width fixo de 150dp era ~47% de 320dp
+                            // — sobrava espaço estranho. Ocupando full width o
+                            // campo escala com qualquer largura de dialog.
+                            modifier = Modifier.fillMaxWidth(),
                             colors = tfColors,
                         )
                     }
