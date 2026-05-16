@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -20,10 +21,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.FitnessCenter
 import androidx.compose.material.icons.filled.PlayArrow
@@ -91,22 +91,41 @@ fun HomeScreen(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         containerColor = MaterialTheme.colorScheme.background,
     ) { padding ->
-        Column(
+        // LazyColumn (era Column + verticalScroll). Column forçava medir
+        // todos os filhos no primeiro frame — em sessão ativa com 12
+        // PreviewRows + N BreakdownRows isso somava ~30 children medidos
+        // antes de qualquer pixel aparecer. LazyColumn mede só itens
+        // visíveis. Spacing entre items via Arrangement.spacedBy preserva
+        // a hierarquia de 24dp entre seções.
+        //
+        // Items mantêm key estável — sem isso, recomposições "rebuild"
+        // o item (perde scroll position, anima de novo as transições
+        // internas). RoutinePreviewCard é condicional (some quando
+        // NO_EXERCISE), e a key estável permite ao LazyColumn manejar
+        // entrada/saída sem replays.
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = 20.dp, vertical = 16.dp),
+                .padding(padding),
+            contentPadding = PaddingValues(
+                start = 20.dp,
+                end = 20.dp,
+                top = 16.dp,
+                // 40dp = 16 da inset + 24 que era o Spacer final, para
+                // preservar o respiro do BottomNav que a Column tinha.
+                bottom = 40.dp,
+            ),
+            verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             // ── Dashboard no topo ───────────────────────────────
-            DailySummaryCard(
-                setsCompleted = state.todaySetsCompleted,
-                totalReps = state.todayTotalReps,
-                dailyTarget = state.dailySetTarget,
-                breakdown = state.todayBreakdown,
-            )
-
-            Spacer(modifier = Modifier.height(24.dp))
+            item(key = "daily_summary") {
+                DailySummaryCard(
+                    setsCompleted = state.todaySetsCompleted,
+                    totalReps = state.todayTotalReps,
+                    dailyTarget = state.dailySetTarget,
+                    breakdown = state.todayBreakdown,
+                )
+            }
 
             // ── Conteúdo central: muda conforme estado ──────────
             // Crossfade 120ms (era AnimatedContent fade 300ms). Encurtado para
@@ -114,30 +133,32 @@ fun HomeScreen(
             // somavam ~440ms perceptual ao entrar na Home logo após
             // start/stop session, dando sensação de "lento". 120ms mantém a
             // transição visualmente, mas dentro do envelope snappy.
-            Crossfade(
-                targetState = resolveScreenState(state),
-                animationSpec = tween(durationMillis = 120),
-                label = "home_content",
-                modifier = Modifier.fillMaxWidth(),
-            ) { screenState ->
-                when (screenState) {
-                    ScreenState.NO_EXERCISE -> NoExerciseContent()
-                    ScreenState.IDLE -> IdleContent(
-                        hasActivityWindow = state.hasActivityWindow,
-                        onStart = viewModel::startSession,
-                    )
-                    ScreenState.COUNTDOWN -> CountdownContent(
-                        exerciseName = state.pendingExerciseName,
-                        targetReps = state.pendingTargetReps,
-                        remainingSeconds = state.remainingSeconds,
-                        baseIntervalMinutes = state.baseIntervalMinutes,
-                        canCheck = state.canCheck,
-                        isOverdue = state.isOverdue,
-                        isAlarmRinging = state.isAlarmPending,
-                        onManualCheck = viewModel::performManualCheck,
-                        onDismissAlarm = viewModel::dismissAlarm,
-                        onStop = viewModel::stopSession,
-                    )
+            item(key = "screen_state_content") {
+                Crossfade(
+                    targetState = resolveScreenState(state),
+                    animationSpec = tween(durationMillis = 120),
+                    label = "home_content",
+                    modifier = Modifier.fillMaxWidth(),
+                ) { screenState ->
+                    when (screenState) {
+                        ScreenState.NO_EXERCISE -> NoExerciseContent()
+                        ScreenState.IDLE -> IdleContent(
+                            hasActivityWindow = state.hasActivityWindow,
+                            onStart = viewModel::startSession,
+                        )
+                        ScreenState.COUNTDOWN -> CountdownContent(
+                            exerciseName = state.pendingExerciseName,
+                            targetReps = state.pendingTargetReps,
+                            remainingSeconds = state.remainingSeconds,
+                            baseIntervalMinutes = state.baseIntervalMinutes,
+                            canCheck = state.canCheck,
+                            isOverdue = state.isOverdue,
+                            isAlarmRinging = state.isAlarmPending,
+                            onManualCheck = viewModel::performManualCheck,
+                            onDismissAlarm = viewModel::dismissAlarm,
+                            onStop = viewModel::stopSession,
+                        )
+                    }
                 }
             }
 
@@ -145,15 +166,13 @@ fun HomeScreen(
             if (state.routinePreview.isNotEmpty() &&
                 resolveScreenState(state) != ScreenState.NO_EXERCISE
             ) {
-                Spacer(modifier = Modifier.height(24.dp))
-                RoutinePreviewCard(
-                    preview = state.routinePreview,
-                    isSessionActive = state.isSessionActive,
-                )
+                item(key = "routine_preview") {
+                    RoutinePreviewCard(
+                        preview = state.routinePreview,
+                        isSessionActive = state.isSessionActive,
+                    )
+                }
             }
-
-            // Espaço extra para garantir que o conteúdo passe da bottom bar
-            Spacer(modifier = Modifier.height(24.dp))
         }
     }
 }
