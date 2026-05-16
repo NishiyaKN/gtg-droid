@@ -1,0 +1,56 @@
+# Gradle
+.gradle/
+build/
+/build
+**/build/
+!**/src/**/build/
+
+# Local config (sdk.dir, keys, etc.)
+local.properties
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.iws
+*.ipr
+out/
+
+# Kotlin
+.kotlin/
+
+# Captures
+captures/
+
+# External native build
+.externalNativeBuild/
+.cxx/
+
+# Generated files
+bin/
+gen/
+
+# Logs / databases
+*.log
+*.db
+
+# OS
+.DS_Store
+Thumbs.db
+
+# APK / signing
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+**/release/
+**/debug/
+*.keystore
+*.jks
+
+# Sensitive
+**/google-services.json
+**/firebase.json
+
+# Claude Code local config
+.claude/settings.local.json

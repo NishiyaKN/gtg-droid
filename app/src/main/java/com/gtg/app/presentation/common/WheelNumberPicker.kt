@@ -1,0 +1,169 @@
+package com.gtg.app.presentation.common
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.gtg.app.presentation.theme.GtgPrimary
+import com.gtg.app.presentation.theme.GtgSurfaceVariant
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlin.math.abs
+
+/**
+ * Picker numérico estilo roleta — substitui os antigos `OutlinedTextField`
+ * de 2 dígitos que sofriam com bug de digitação (valor "ficava 00").
+ *
+ * Comportamento:
+ * - Range `0..max`, com snap automático ao soltar o gesto.
+ * - O item central do viewport é o valor selecionado, destacado em [GtgPrimary].
+ * - Gradiente fade nas bordas para reforçar a metáfora de roleta.
+ * - Emite `onValueChange` quando o scroll para (não a cada pixel) para evitar
+ *   thrashing de ViewModel.
+ */
+@Composable
+fun WheelNumberPicker(
+    value: Int,
+    max: Int,
+    onValueChange: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+    width: Dp = 64.dp,
+    itemHeight: Dp = 40.dp,
+    visibleItems: Int = 3,
+) {
+    require(visibleItems % 2 == 1) { "visibleItems precisa ser ímpar para ter item central" }
+
+    val coerced = value.coerceIn(0, max)
+    val state = rememberLazyListState(initialFirstVisibleItemIndex = coerced)
+    val flingBehavior = rememberSnapFlingBehavior(state)
+
+    // Índice central do viewport — derivado da posição real medida do item.
+    // visibleItemsInfo fica vazio na primeira composição, daí o fallback.
+    val centeredIndex by remember {
+        derivedStateOf {
+            val info = state.layoutInfo
+            val items = info.visibleItemsInfo
+            if (items.isEmpty()) return@derivedStateOf coerced
+            val viewportCenter = (info.viewportStartOffset + info.viewportEndOffset) / 2
+            items.minBy { abs((it.offset + it.size / 2) - viewportCenter) }.index
+        }
+    }
+
+    // Propaga o valor selecionado APENAS quando o scroll para. Sem isto, cada
+    // pixel de scroll dispararia uma escrita em SharedPreferences.
+    LaunchedEffect(state) {
+        snapshotFlow { state.isScrollInProgress to centeredIndex }
+            .distinctUntilChanged()
+            .collect { (scrolling, idx) ->
+                if (!scrolling) {
+                    val v = idx.coerceIn(0, max)
+                    if (v != value) onValueChange(v)
+                }
+            }
+    }
+
+    // Reage a mudanças externas do valor (ex: ViewModel coercitivo). Não rola
+    // enquanto o usuário está com o dedo na tela — evita "puxões" indesejados.
+    LaunchedEffect(value) {
+        if (state.isScrollInProgress) return@LaunchedEffect
+        val v = value.coerceIn(0, max)
+        if (state.firstVisibleItemIndex != v || state.firstVisibleItemScrollOffset != 0) {
+            state.scrollToItem(v)
+        }
+    }
+
+    val sidePadding = itemHeight * (visibleItems / 2)
+    val totalHeight = itemHeight * visibleItems
+
+    Box(
+        modifier = modifier
+            .width(width)
+            .height(totalHeight),
+        contentAlignment = Alignment.Center,
+    ) {
+        // Banda destacando o item central
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(itemHeight)
+                .clip(RoundedCornerShape(8.dp))
+                .background(GtgSurfaceVariant.copy(alpha = 0.5f)),
+        )
+
+        LazyColumn(
+            state = state,
+            flingBehavior = flingBehavior,
+            contentPadding = PaddingValues(vertical = sidePadding),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
+            items(max + 1) { idx ->
+                val distance = abs(idx - centeredIndex)
+                val isCenter = distance == 0
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(itemHeight),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = "%02d".format(idx),
+                        color = when {
+                            isCenter -> GtgPrimary
+                            distance == 1 -> Color.White.copy(alpha = 0.55f)
+                            else -> Color.White.copy(alpha = 0.25f)
+                        },
+                        fontSize = if (isCenter) 22.sp else 16.sp,
+                        fontWeight = if (isCenter) FontWeight.Bold else FontWeight.Normal,
+                    )
+                }
+            }
+        }
+
+        // Gradiente fade nas bordas (top/bottom) para mascarar os extremos
+        // — reforça a sensação de roleta cilíndrica.
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(itemHeight)
+                .align(Alignment.TopCenter)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color(0xFF121212), Color.Transparent),
+                    ),
+                ),
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(itemHeight)
+                .align(Alignment.BottomCenter)
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Transparent, Color(0xFF121212)),
+                    ),
+                ),
+        )
+    }
+}

@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Alarmes exatos garantidos mesmo em Doze mode -->
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
+    <uses-permission android:name="android.permission.USE_EXACT_ALARM" />
+
+    <!-- Manter CPU ativa durante processamento do alarme -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Notificações (obrigatório Android 13+) -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+        Full-Screen Intent (Android 14+). Sem esta declaração,
+        canUseFullScreenIntent() devolve false em definitivo e o toggle em
+        Settings > Apps > GtG > Notificações > Full screen sequer aparece.
+    -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+
+    <!-- Reagendar alarmes após reboot -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Vibração para feedback do alarme -->
+    <uses-permission android:name="android.permission.VIBRATE" />
+
+    <!--
+        Leitura do Calendar Provider local (Google Calendar, Outlook, etc.
+        sincronizados via app nativo). Usado para auto-bloquear horários do
+        scheduler. Solicitada em runtime apenas quando o usuário ativa a
+        integração em Configurações.
+    -->
+    <uses-permission android:name="android.permission.READ_CALENDAR" />
+
+    <application
+        android:name=".GtgApplication"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="GtG"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.GtG">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.GtG">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!--
+            AlarmActivity: exibida como Full-Screen Intent quando o alarme dispara.
+            - showWhenLocked + turnScreenOn: garante exibição com tela bloqueada.
+            - taskAffinity vazio: impede que entre na pilha de atividades do app principal.
+        -->
+        <activity
+            android:name=".presentation.alarm.AlarmActivity"
+            android:exported="false"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
+            android:taskAffinity=""
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:theme="@style/Theme.GtG" />
+
+        <!-- Receiver do AlarmManager -->
+        <receiver
+            android:name=".presentation.alarm.AlarmReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
+        <!-- Reagendar alarmes após reboot do dispositivo ou update do app -->
+        <receiver
+            android:name=".presentation.alarm.BootReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
+            </intent-filter>
+        </receiver>
+
+    </application>
+</manifest>
