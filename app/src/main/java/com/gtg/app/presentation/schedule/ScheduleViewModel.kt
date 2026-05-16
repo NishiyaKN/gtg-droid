@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
@@ -86,8 +87,14 @@ class ScheduleViewModel @Inject constructor(
         // Refaz a query do Calendar a cada mudança nas prefs (toggle on/off,
         // seleção de calendários, override de evento). Roda em paralelo com
         // o observer de blocos manuais.
+        //
+        // .conflate(): observeChanges emite uma vez por chave mudada no
+        // SharedPreferences. Quando o usuário toggla várias configs em rajada,
+        // sem conflate disparávamos loadCalendarBlocks (acessa CalendarContract
+        // — relativamente caro) uma vez por chave; com conflate, processamos
+        // só a última emissão de cada burst.
         viewModelScope.launch {
-            sessionPrefs.observeChanges().collect {
+            sessionPrefs.observeChanges().conflate().collect {
                 loadCalendarBlocks(_state.value.calendarMonth)
             }
         }

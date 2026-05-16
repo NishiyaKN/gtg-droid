@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
@@ -104,7 +105,12 @@ class SettingsViewModel @Inject constructor(
 
         // Observa SharedPreferences para intervalo base, meta diária, DND e som.
         viewModelScope.launch {
-            sessionPrefs.observeChanges().collect {
+            // .conflate(): callbackFlow do SessionPreferences emite uma vez por
+            // chave do SharedPreferences mudada. setNextAlarm escreve 5 chaves
+            // num único .apply() → 5 emissões. Sem conflate, atualizamos o
+            // state 5 vezes em rajada; com conflate, processamos só a última
+            // (o snapshot final já reflete os 5 campos).
+            sessionPrefs.observeChanges().conflate().collect {
                 val uri = sessionPrefs.alarmSoundUri
                 _state.update {
                     it.copy(
