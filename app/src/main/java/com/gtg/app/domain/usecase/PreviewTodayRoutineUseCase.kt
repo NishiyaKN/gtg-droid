@@ -81,17 +81,25 @@ class PreviewTodayRoutineUseCase @Inject constructor(
             isScheduled = isFirstAlarmScheduled,
         )
 
+        // Pré-busca window + blocos (manuais + calendar) para o referenceDate
+        // UMA vez antes de iterar. Sem isto, cada iteração refetchava as 3
+        // dependências (~36 queries Room para 12 iterações). Com pré-busca,
+        // são 3 queries no total — restante do loop é puro CPU.
+        val deps = dynamicScheduler.preFetchForDate(referenceDate)
+            ?: return result // sem window não há mais nada a projetar
+
         var previousAlarm = firstAlarmAt
 
         repeat(maxIterations - 1) {
             // Simula "check no horário do alarme anterior" + "agora = aquele momento"
             // para que a regra de descanso mínimo (20min) não seja triggerada
             // erroneamente pelo "agora" real do sistema.
-            val nextResult = dynamicScheduler.calculateNextAlarm(
+            val nextResult = dynamicScheduler.evaluateWithDependencies(
                 checkTime = previousAlarm,
                 baseIntervalMinutes = baseIntervalMinutes,
                 now = previousAlarm,
                 activeDaysOfWeek = activeDaysOfWeek,
+                deps = deps,
             )
 
             when (nextResult) {

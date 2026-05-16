@@ -1,10 +1,13 @@
 package com.gtg.app.domain.usecase
 
+import com.gtg.app.domain.model.ActivityWindow
 import com.gtg.app.domain.model.InactivityBlock
 import com.gtg.app.domain.model.ScheduleResult
 import com.gtg.app.domain.repository.ActivityWindowRepository
 import com.gtg.app.domain.repository.CalendarEventRepository
 import com.gtg.app.domain.repository.InactivityBlockRepository
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import java.time.DayOfWeek
 import java.time.Duration
 import java.time.LocalDate
@@ -52,6 +55,23 @@ class DynamicSchedulerUseCase @Inject constructor(
     }
 
     /**
+     * Bundle de dependências pré-buscadas para uma data específica. Permite que
+     * callers que iteram sobre o scheduler para a mesma data (ex:
+     * [PreviewTodayRoutineUseCase]) evitem refazer fetches Room idênticos.
+     *
+     * Os blocos pré-buscados aplicam-se à `date` informada. Se uma chamada
+     * subsequente landar em data diferente, [evaluateWithDependencies] usará
+     * os blocos mesmo assim — o caller é responsável por validar a aderência
+     * (preview filtra resultados que cruzam o dia de referência).
+     */
+    data class PrefetchedDependencies(
+        val date: LocalDate,
+        val window: ActivityWindow,
+        val manualBlocks: List<InactivityBlock>,
+        val calendarBlocks: List<InactivityBlock>,
+    )
+
+    /**
      * Calcula o próximo alarme.
      *
      * @param checkTime Momento exato em que o usuário apertou "Check" no alarme atual.
@@ -66,36 +86,82 @@ class DynamicSchedulerUseCase @Inject constructor(
         now: LocalDateTime = LocalDateTime.now(),
         activeDaysOfWeek: Set<DayOfWeek> = DayOfWeek.entries.toSet(),
     ): ScheduleResult {
+        // Pre-computa a data alvo para pré-buscar blocos da data correta.
+        // Replica o mesmo cálculo do início de [evaluateWithDependencies] mas
+        // sem precisar da window — usado só para escolher a data do fetch.
+        val initialCandidate = checkTime
+            .plusMinutes(baseIntervalMinutes)
+            .let { c ->
+                val earliest = now.plusMinutes(MINIMUM_REST_MINUTES)
+                if (c.isBefore(earliest)) earliest else c
+            }
+        val targetDate = initialCandidate.toLocalDate()
+
+        val deps = preFetchForDate(targetDate)
+            ?: return ScheduleResult.NoWindowConfigured
+        return evaluateWithDependencies(
+            checkTime = checkTime,
+            baseIntervalMinutes = baseIntervalMinutes,
+            now = now,
+            activeDaysOfWeek = activeDaysOfWeek,
+            deps = deps,
+        )
+    }
+
+    /**
+     * Pré-busca window + blocos (manuais + calendar) para [date], em paralelo.
+     *
+     * Exposto para callers que iteram múltiplas vezes sobre a mesma data — o
+     * grande exemplo é [PreviewTodayRoutineUseCase], que simula até 12
+     * checks consecutivos no `referenceDate`. Sem esta otimização, cada
+     * iteração refetchava window + blocks (~36 queries Room para 12
+     * iterações); com a pré-busca, são 3 queries no total.
+     *
+     * Retorna `null` se não há janela de atividade configurada — o caller
+     * deve mapear isso para [ScheduleResult.NoWindowConfigured] ou equivalente.
+     */
+    suspend fun preFetchForDate(date: LocalDate): PrefetchedDependencies? {
+        val window = activityWindowRepository.getActiveWindow() ?: return null
+        return coroutineScope {
+            val manualDef = async { inactivityBlockRepository.getBlocksActiveOn(date) }
+            val calendarDef = async { calendarEventRepository.getBlocksOn(date) }
+            PrefetchedDependencies(
+                date = date,
+                window = window,
+                manualBlocks = manualDef.await(),
+                calendarBlocks = calendarDef.await(),
+            )
+        }
+    }
+
+    /**
+     * Avalia o algoritmo das 5 regras usando dependências já pré-buscadas. Não
+     * faz I/O — pode ser chamada repetidamente sem custo de Room.
+     *
+     * É a engine pura do scheduler; [calculateNextAlarm] e o loop de
+     * [PreviewTodayRoutineUseCase] ambos convergem aqui.
+     */
+    fun evaluateWithDependencies(
+        checkTime: LocalDateTime,
+        baseIntervalMinutes: Long,
+        now: LocalDateTime,
+        activeDaysOfWeek: Set<DayOfWeek>,
+        deps: PrefetchedDependencies,
+    ): ScheduleResult {
         // ────────────────────────────────────────────────────────────────
         // REGRA 2 — Cálculo Base
-        // O ponto de partida é sempre relativo ao momento do Check,
-        // não ao momento atual. Isso preserva a cadência do usuário.
         // ────────────────────────────────────────────────────────────────
         var candidate = checkTime.plusMinutes(baseIntervalMinutes)
 
         // ────────────────────────────────────────────────────────────────
         // REGRA 3 — Descanso Mínimo Obrigatório (20 min)
-        // Se o usuário atrasou o Check (ex: fez Check 60min depois do alarme),
-        // o candidato poderia cair no passado ou muito próximo de "agora".
-        // Garantimos pelo menos MINIMUM_REST_MINUTES a partir de NOW.
         // ────────────────────────────────────────────────────────────────
         val earliestAllowed = now.plusMinutes(MINIMUM_REST_MINUTES)
         if (candidate.isBefore(earliestAllowed)) {
             candidate = earliestAllowed
         }
 
-        // ────────────────────────────────────────────────────────────────
-        // Obter ActivityWindow ativa
-        // Sem janela configurada, não há como agendar.
-        // ────────────────────────────────────────────────────────────────
-        val window = activityWindowRepository.getActiveWindow()
-            ?: return ScheduleResult.NoWindowConfigured
-
-        // ────────────────────────────────────────────────────────────────
-        // Verificar se o candidato está ANTES do início da janela do dia.
-        // Isso ocorre se o check foi feito de madrugada ou se o intervalo
-        // empurrou o candidato para além da meia-noite.
-        // ────────────────────────────────────────────────────────────────
+        val window = deps.window
         val todayDate = now.toLocalDate()
         val candidateDate = candidate.toLocalDate()
         val windowStartToday = candidateDate.atTime(window.startTime)
@@ -106,10 +172,7 @@ class DynamicSchedulerUseCase @Inject constructor(
         }
 
         // ────────────────────────────────────────────────────────────────
-        // Dia da semana inativo — usuário desabilitou este weekday
-        // em Configurações (ex: sábado/domingo desligados). Rola para o
-        // próximo dia ativo. Avalia ANTES das regras 5 e 4 para não gastar
-        // ciclos em um dia que será descartado de qualquer forma.
+        // Dia da semana inativo
         // ────────────────────────────────────────────────────────────────
         if (candidateDate.dayOfWeek !in activeDaysOfWeek) {
             return scheduleForNextActiveDay(candidateDate, window.startTime, activeDaysOfWeek)
@@ -117,8 +180,6 @@ class DynamicSchedulerUseCase @Inject constructor(
 
         // ────────────────────────────────────────────────────────────────
         // REGRA 5 — Fim do Expediente (checagem inicial)
-        // Se já ultrapassou o fim da janela de hoje ANTES mesmo de
-        // verificar colisões, vai direto para amanhã.
         // ────────────────────────────────────────────────────────────────
         if (!candidate.isBefore(windowEndToday)) {
             return scheduleForNextActiveDay(candidateDate, window.startTime, activeDaysOfWeek)
@@ -126,22 +187,12 @@ class DynamicSchedulerUseCase @Inject constructor(
 
         // ────────────────────────────────────────────────────────────────
         // REGRA 4 — Colisão com Blocos de Inatividade
-        //
-        // Busca todos os blocos ativos para a data do candidato e
-        // itera para resolver colisões. O loop é necessário porque
-        // ajustar para evitar um bloco pode empurrar o horário para
-        // dentro de outro bloco adjacente.
-        //
-        // Limite de MAX_COLLISION_ITERATIONS previne loop infinito
-        // em configurações patológicas (blocos sobrepostos, etc.).
         // ────────────────────────────────────────────────────────────────
-        // Agrega bloqueios manuais (Room) com eventos do Calendar Provider
-        // (CalendarEventRepository). Os virtuais já são NONE+specificDate, então
-        // entram no mesmo pipeline da Regra 4 sem alteração da lógica.
-        val manualBlocks = inactivityBlockRepository.getBlocksActiveOn(candidateDate)
-        val calendarBlocks = calendarEventRepository.getBlocksOn(candidateDate)
-        val blocks = (manualBlocks + calendarBlocks)
-            .sortedBy { it.startTime } // ordenar por início para processamento sequencial
+        // Usa blocos pré-buscados. Em chamadas onde candidateDate != deps.date
+        // (raro — só em iterações de preview que cruzam meia-noite), o caller
+        // já filtra o resultado, então não há impacto observável.
+        val blocks = (deps.manualBlocks + deps.calendarBlocks)
+            .sortedBy { it.startTime }
 
         var collisionResolved: Boolean
         var iterations = 0
@@ -154,53 +205,35 @@ class DynamicSchedulerUseCase @Inject constructor(
                 val blockStart = candidateDate.atTime(block.startTime)
                 val blockEnd = candidateDate.atTime(block.endTime)
 
-                // Candidato está dentro deste bloco? [blockStart, blockEnd)
                 if (candidate >= blockStart && candidate < blockEnd) {
-                    // Quantos minutos se passaram desde o início do bloco
                     val minutesPastStart = Duration.between(blockStart, candidate).toMinutes()
 
                     if (minutesPastStart < INACTIVITY_PROXIMITY_MINUTES) {
-                        // ─── Caso A: Perto do INÍCIO do bloco ───
-                        // Antecipa para BUFFER minutos antes do início do bloco.
                         val anticipatedTime = blockStart.minusMinutes(INACTIVITY_BUFFER_MINUTES)
-
-                        // Só antecipa se o horário antecipado ainda respeitar o descanso mínimo
-                        // E estiver dentro da janela de atividade.
                         if (!anticipatedTime.isBefore(earliestAllowed) &&
                             !anticipatedTime.isBefore(windowStartToday)
                         ) {
                             candidate = anticipatedTime
                         } else {
-                            // Não é possível antecipar (violaria descanso mínimo ou
-                            // cairia antes da janela) → adia para depois do bloco.
                             candidate = blockEnd.plusMinutes(INACTIVITY_BUFFER_MINUTES)
                         }
                     } else {
-                        // ─── Caso B: Meio ou fim do bloco ───
-                        // Adia para BUFFER minutos depois do fim do bloco.
                         candidate = blockEnd.plusMinutes(INACTIVITY_BUFFER_MINUTES)
                     }
 
-                    // Marcamos que houve ajuste → precisamos re-verificar todos os blocos
-                    // pois o novo horário pode colidir com outro bloco.
                     collisionResolved = false
-                    break // reinicia o for para verificar com o novo candidate
+                    break
                 }
             }
         } while (!collisionResolved && iterations < MAX_COLLISION_ITERATIONS)
 
         // ────────────────────────────────────────────────────────────────
         // REGRA 5 — Fim do Expediente (checagem final)
-        // Após resolver colisões, o candidato pode ter sido empurrado
-        // para além do fim da janela. Nesse caso, agenda para amanhã.
         // ────────────────────────────────────────────────────────────────
         if (!candidate.isBefore(windowEndToday)) {
             return scheduleForNextActiveDay(candidateDate, window.startTime, activeDaysOfWeek)
         }
 
-        // Se o candidato caiu em um dia diferente de "hoje" (ex: intervalo
-        // cruzou meia-noite e empurrou para windowStart do dia seguinte),
-        // retornar ScheduledTomorrow para que a UI mostre a mensagem correta.
         return if (candidate.toLocalDate().isAfter(todayDate)) {
             ScheduleResult.ScheduledTomorrow(candidate)
         } else {
