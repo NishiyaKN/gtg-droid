@@ -18,6 +18,7 @@ import com.gtg.app.domain.usecase.DynamicSchedulerUseCase
 import com.gtg.app.domain.usecase.GetExerciseBreakdownUseCase
 import com.gtg.app.domain.usecase.PlannedSet
 import com.gtg.app.domain.usecase.PreviewTodayRoutineUseCase
+import com.gtg.app.domain.usecase.findNextActiveDate
 import com.gtg.app.domain.usecase.pickNextExerciseInRotation
 import com.gtg.app.presentation.alarm.AlarmReceiver
 import com.gtg.app.presentation.alarm.AlarmSoundPlayer
@@ -32,6 +33,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import java.time.DayOfWeek
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -124,6 +126,7 @@ class HomeViewModel @Inject constructor(
         val isSessionActive: Boolean,
         val pendingExerciseId: Long,
         val baseIntervalMinutes: Long,
+        val activeDaysOfWeek: Set<DayOfWeek>,
     )
 
     // `null` no boot: garante que a 1ª emissão do observer não dispare lógica
@@ -170,6 +173,7 @@ class HomeViewModel @Inject constructor(
                     isSessionActive = sessionPrefs.isSessionActive,
                     pendingExerciseId = sessionPrefs.pendingExerciseId,
                     baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
+                    activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
                 )
 
                 _state.update { current ->
@@ -199,7 +203,27 @@ class HomeViewModel @Inject constructor(
                     previous.baseIntervalMinutes != snapshot.baseIntervalMinutes &&
                     snapshot.isSessionActive
                 if (intervalChangedDuringSession) {
-                    rescheduleOnIntervalChange(snapshot.baseIntervalMinutes)
+                    rescheduleFromAnchor(snapshot.baseIntervalMinutes)
+                }
+
+                // activeDaysOfWeek mudou em sessão ativa e o alarme pendente cai
+                // num dia agora INATIVO → recalcular para empurrar para o próximo
+                // dia ativo. Apenas reagenda se o dia atual ficou inválido — não
+                // mexe se o usuário só re-habilitou um dia (evita "pular para trás"
+                // surpresa). Sem esse hook, alterar dias em Configs não afetava o
+                // PendingIntent já armado no AlarmManager — alarmes de sáb/dom
+                // desligados continuavam tocando.
+                val activeDaysChangedDuringSession = previous != null &&
+                    previous.activeDaysOfWeek != snapshot.activeDaysOfWeek &&
+                    snapshot.isSessionActive
+                if (activeDaysChangedDuringSession && snapshot.nextAlarmMillis > 0L) {
+                    val nextAlarmDate = LocalDateTime.ofInstant(
+                        java.time.Instant.ofEpochMilli(snapshot.nextAlarmMillis),
+                        ZoneId.systemDefault(),
+                    ).toLocalDate()
+                    if (nextAlarmDate.dayOfWeek !in snapshot.activeDaysOfWeek) {
+                        rescheduleFromAnchor(snapshot.baseIntervalMinutes)
+                    }
                 }
             }
         }
@@ -381,12 +405,17 @@ class HomeViewModel @Inject constructor(
     }
 
     /**
-     * Reagenda silenciosamente para o início da janela do dia seguinte,
+     * Reagenda silenciosamente para o início da janela do próximo dia ATIVO,
      * preservando o exercício atual pending (não avança a rotação — o set foi
      * perdido, não pulado deliberadamente).
+     *
+     * Respeita `activeDaysOfWeek`: se sáb/dom estão desligados e o usuário
+     * deixa a janela de sexta passar sem fazer Check, o reschedule pula para
+     * segunda em vez de cair em sábado.
      */
     private fun rescheduleForNextDayKeepingExercise(window: ActivityWindow) {
-        val nextDateTime = LocalDate.now().plusDays(1).atTime(window.startTime)
+        val nextDate = findNextActiveDate(LocalDate.now(), sessionPrefs.activeDaysOfWeek)
+        val nextDateTime = nextDate.atTime(window.startTime)
         val nextMillis = nextDateTime
             .atZone(ZoneId.systemDefault())
             .toInstant()
@@ -560,14 +589,19 @@ class HomeViewModel @Inject constructor(
     // ── Helpers ──────────────────────────────────────────────────
 
     /**
-     * Reagenda o alarme da sessão ativa quando o usuário muda o `baseInterval`
-     * em Settings. Semântica: `próximo = lastCheck + novoIntervalo`, com regras
-     * 3/4/5 do [DynamicSchedulerUseCase] aplicadas por cima.
+     * Reagenda o alarme da sessão ativa a partir da âncora `lastCheckMillis`,
+     * usando [intervalMinutes] e o filtro de dias ativos atual. Semântica:
+     * `próximo = lastCheck + intervalo`, com regras 3/4/5 do
+     * [DynamicSchedulerUseCase] aplicadas por cima.
+     *
+     * Acionado tanto por mudança de `baseInterval` quanto por mudança de
+     * `activeDaysOfWeek` em sessão ativa — ambos invalidam o agendamento
+     * vigente e exigem recalcular a partir da última âncora estável.
      *
      * Para o som — o alarme original está sendo substituído, manter o som
      * seria inconsistente com o novo agendamento.
      */
-    private suspend fun rescheduleOnIntervalChange(newIntervalMinutes: Long) {
+    private suspend fun rescheduleFromAnchor(intervalMinutes: Long) {
         val pendingId = sessionPrefs.pendingExerciseId
         if (pendingId <= 0L) return
 
@@ -582,7 +616,7 @@ class HomeViewModel @Inject constructor(
         val nextDateTime = when (
             val result = dynamicScheduler.calculateNextAlarm(
                 checkTime = anchor,
-                baseIntervalMinutes = newIntervalMinutes,
+                baseIntervalMinutes = intervalMinutes,
                 activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
             )
         ) {

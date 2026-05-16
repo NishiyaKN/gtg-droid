@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.domain.scheduler.AlarmScheduler
+import com.gtg.app.domain.usecase.findNextActiveDate
 import dagger.hilt.android.AndroidEntryPoint
 import java.time.Instant
 import java.time.LocalDateTime
@@ -54,10 +55,32 @@ class BootReceiver : BroadcastReceiver() {
 
         if (nextAlarmMillis > now) {
             // Alarme ainda no futuro → reagendar
-            val triggerAt = LocalDateTime.ofInstant(
+            val original = LocalDateTime.ofInstant(
                 Instant.ofEpochMilli(nextAlarmMillis),
                 ZoneId.systemDefault(),
             )
+
+            // Filtro de dias da semana pode ter sido alterado entre o
+            // momento em que o alarme foi agendado e este reboot. Se o dia
+            // agora está inativo, empurra para o próximo dia ativo,
+            // preservando o time-of-day original (já validado contra a janela
+            // de atividade quando o alarme foi computado). Persiste o novo
+            // millis para manter o resto do app sincronizado.
+            val activeDays = sessionPrefs.activeDaysOfWeek
+            val triggerAt = if (original.dayOfWeek in activeDays) {
+                original
+            } else {
+                val adjustedDate = findNextActiveDate(original.toLocalDate(), activeDays)
+                val adjusted = adjustedDate.atTime(original.toLocalTime())
+                sessionPrefs.setNextAlarm(
+                    epochMillis = adjusted.atZone(ZoneId.systemDefault())
+                        .toInstant().toEpochMilli(),
+                    exerciseId = sessionPrefs.pendingExerciseId,
+                    exerciseName = sessionPrefs.pendingExerciseName,
+                    targetReps = sessionPrefs.pendingTargetReps,
+                )
+                adjusted
+            }
 
             alarmScheduler.schedule(
                 triggerAt = triggerAt,

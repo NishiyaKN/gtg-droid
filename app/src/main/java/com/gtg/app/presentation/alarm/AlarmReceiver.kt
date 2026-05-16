@@ -125,15 +125,23 @@ class AlarmReceiver : BroadcastReceiver() {
 
             // Re-alerta enquanto o usuário não silenciar / fizer Check / parar.
             // Cancelamento: [HomeViewModel.dismissActiveAlarm].
+            //
+            // Guard de dias ativos: se o usuário desabilitou o weekday de hoje
+            // (corner case: filtro mudou entre o agendamento e o disparo), não
+            // reentra na cadeia de overshoot — ela continuaria batendo num dia
+            // que o usuário marcou como off.
             if (sessionPrefs.overshootRepeatEnabled && sessionPrefs.isSessionActive) {
-                val nextOvershoot = LocalDateTime.now()
-                    .plusMinutes(sessionPrefs.overshootRepeatMinutes.toLong())
-                alarmScheduler.scheduleOvershoot(
-                    triggerAt = nextOvershoot,
-                    exerciseId = exerciseId,
-                    exerciseName = exerciseName,
-                    targetReps = targetReps,
-                )
+                val now = LocalDateTime.now()
+                if (now.dayOfWeek in sessionPrefs.activeDaysOfWeek) {
+                    val nextOvershoot = now
+                        .plusMinutes(sessionPrefs.overshootRepeatMinutes.toLong())
+                    alarmScheduler.scheduleOvershoot(
+                        triggerAt = nextOvershoot,
+                        exerciseId = exerciseId,
+                        exerciseName = exerciseName,
+                        targetReps = targetReps,
+                    )
+                }
             }
         } finally {
             if (wakeLock.isHeld) {

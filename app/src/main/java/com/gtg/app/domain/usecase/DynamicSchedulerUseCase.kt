@@ -211,22 +211,38 @@ class DynamicSchedulerUseCase @Inject constructor(
     /**
      * Agenda para o início da ActivityWindow do próximo dia ATIVO da semana.
      * Pula dias removidos pelo usuário em Configurações (ex: sábado/domingo).
-     * Se todos os 7 dias estiverem inativos (config patológica), cai para
-     * `currentDate + 1` defensivamente.
      */
     private fun scheduleForNextActiveDay(
         currentDate: LocalDate,
         windowStartTime: LocalTime,
         activeDaysOfWeek: Set<DayOfWeek>,
     ): ScheduleResult.ScheduledTomorrow {
-        repeat(7) { offset ->
-            val candidate = currentDate.plusDays(offset.toLong() + 1)
-            if (candidate.dayOfWeek in activeDaysOfWeek) {
-                return ScheduleResult.ScheduledTomorrow(candidate.atTime(windowStartTime))
-            }
-        }
-        return ScheduleResult.ScheduledTomorrow(
-            currentDate.plusDays(1).atTime(windowStartTime),
-        )
+        val nextDate = findNextActiveDate(currentDate, activeDaysOfWeek)
+        return ScheduleResult.ScheduledTomorrow(nextDate.atTime(windowStartTime))
     }
+}
+
+/**
+ * Acha o próximo [LocalDate] ESTRITAMENTE depois de [after] cujo `dayOfWeek`
+ * pertence a [activeDaysOfWeek]. Caminha no máximo 7 dias.
+ *
+ * Compartilhado entre [DynamicSchedulerUseCase] (roll-over normal),
+ * [com.gtg.app.presentation.home.HomeViewModel] (roll-over de fim de janela)
+ * e [com.gtg.app.presentation.alarm.BootReceiver] (validação pós-reboot),
+ * para garantir que **todos** os caminhos que produzem datas futuras respeitem
+ * o filtro de dias da semana.
+ *
+ * Se todos os 7 dias estiverem inativos (config patológica — a UI deve
+ * impedir isso, mas defensivamente), cai para `after + 1` para não travar
+ * o scheduler indefinidamente.
+ */
+fun findNextActiveDate(
+    after: LocalDate,
+    activeDaysOfWeek: Set<DayOfWeek>,
+): LocalDate {
+    repeat(7) { offset ->
+        val candidate = after.plusDays(offset.toLong() + 1)
+        if (candidate.dayOfWeek in activeDaysOfWeek) return candidate
+    }
+    return after.plusDays(1)
 }
