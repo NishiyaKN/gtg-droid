@@ -36,7 +36,7 @@
         android:name=".GtgApplication"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
-        android:label="GtG"
+        android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.GtG">
