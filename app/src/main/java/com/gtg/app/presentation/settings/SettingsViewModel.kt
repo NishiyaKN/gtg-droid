@@ -20,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.time.DayOfWeek
 import java.time.LocalTime
 import javax.inject.Inject
 
@@ -56,6 +57,8 @@ data class SettingsUiState(
     val calendarPermissionGranted: Boolean = false,
     /** Lista de calendários disponíveis no device (carregada sob demanda). */
     val availableCalendars: List<CalendarInfo> = emptyList(),
+    /** Dias da semana em que o app pode disparar alarmes. */
+    val activeDaysOfWeek: Set<DayOfWeek> = DayOfWeek.entries.toSet(),
 )
 
 @HiltViewModel
@@ -116,6 +119,7 @@ class SettingsViewModel @Inject constructor(
                         calendarEnabled = sessionPrefs.calendarIntegrationEnabled,
                         calendarSelectedIds = sessionPrefs.calendarSelectedIds,
                         calendarShowTitles = sessionPrefs.calendarShowTitles,
+                        activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
                     )
                 }
             }
@@ -262,5 +266,17 @@ class SettingsViewModel @Inject constructor(
 
     fun setCalendarShowTitles(show: Boolean) {
         sessionPrefs.setCalendarShowTitles(show)
+    }
+
+    /**
+     * Toggle de um dia da semana na lista de dias ativos. Mantém pelo menos
+     * um dia ativo — desativar todos significaria o scheduler nunca disparar,
+     * confundindo o usuário.
+     */
+    fun toggleActiveDay(day: DayOfWeek) {
+        val current = sessionPrefs.activeDaysOfWeek
+        val updated = if (day in current) current - day else current + day
+        if (updated.isEmpty()) return
+        sessionPrefs.setActiveDaysOfWeek(updated)
     }
 }

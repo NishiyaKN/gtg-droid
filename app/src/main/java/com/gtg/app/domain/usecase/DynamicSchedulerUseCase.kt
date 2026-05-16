@@ -5,6 +5,7 @@ import com.gtg.app.domain.model.ScheduleResult
 import com.gtg.app.domain.repository.ActivityWindowRepository
 import com.gtg.app.domain.repository.CalendarEventRepository
 import com.gtg.app.domain.repository.InactivityBlockRepository
+import java.time.DayOfWeek
 import java.time.Duration
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -63,6 +64,7 @@ class DynamicSchedulerUseCase @Inject constructor(
         checkTime: LocalDateTime,
         baseIntervalMinutes: Long,
         now: LocalDateTime = LocalDateTime.now(),
+        activeDaysOfWeek: Set<DayOfWeek> = DayOfWeek.entries.toSet(),
     ): ScheduleResult {
         // ────────────────────────────────────────────────────────────────
         // REGRA 2 — Cálculo Base
@@ -104,12 +106,22 @@ class DynamicSchedulerUseCase @Inject constructor(
         }
 
         // ────────────────────────────────────────────────────────────────
+        // Dia da semana inativo — usuário desabilitou este weekday
+        // em Configurações (ex: sábado/domingo desligados). Rola para o
+        // próximo dia ativo. Avalia ANTES das regras 5 e 4 para não gastar
+        // ciclos em um dia que será descartado de qualquer forma.
+        // ────────────────────────────────────────────────────────────────
+        if (candidateDate.dayOfWeek !in activeDaysOfWeek) {
+            return scheduleForNextActiveDay(candidateDate, window.startTime, activeDaysOfWeek)
+        }
+
+        // ────────────────────────────────────────────────────────────────
         // REGRA 5 — Fim do Expediente (checagem inicial)
         // Se já ultrapassou o fim da janela de hoje ANTES mesmo de
         // verificar colisões, vai direto para amanhã.
         // ────────────────────────────────────────────────────────────────
         if (!candidate.isBefore(windowEndToday)) {
-            return scheduleForNextDay(candidateDate, window.startTime)
+            return scheduleForNextActiveDay(candidateDate, window.startTime, activeDaysOfWeek)
         }
 
         // ────────────────────────────────────────────────────────────────
@@ -183,7 +195,7 @@ class DynamicSchedulerUseCase @Inject constructor(
         // para além do fim da janela. Nesse caso, agenda para amanhã.
         // ────────────────────────────────────────────────────────────────
         if (!candidate.isBefore(windowEndToday)) {
-            return scheduleForNextDay(candidateDate, window.startTime)
+            return scheduleForNextActiveDay(candidateDate, window.startTime, activeDaysOfWeek)
         }
 
         // Se o candidato caiu em um dia diferente de "hoje" (ex: intervalo
@@ -197,17 +209,24 @@ class DynamicSchedulerUseCase @Inject constructor(
     }
 
     /**
-     * Agenda para o início da ActivityWindow do dia seguinte.
-     *
-     * @param currentDate Data de referência (hoje).
-     * @param windowStartTime Horário de início da janela.
-     * @return [ScheduleResult.ScheduledTomorrow] com o datetime do próximo dia.
+     * Agenda para o início da ActivityWindow do próximo dia ATIVO da semana.
+     * Pula dias removidos pelo usuário em Configurações (ex: sábado/domingo).
+     * Se todos os 7 dias estiverem inativos (config patológica), cai para
+     * `currentDate + 1` defensivamente.
      */
-    private fun scheduleForNextDay(
+    private fun scheduleForNextActiveDay(
         currentDate: LocalDate,
         windowStartTime: LocalTime,
+        activeDaysOfWeek: Set<DayOfWeek>,
     ): ScheduleResult.ScheduledTomorrow {
-        val tomorrowStart = currentDate.plusDays(1).atTime(windowStartTime)
-        return ScheduleResult.ScheduledTomorrow(tomorrowStart)
+        repeat(7) { offset ->
+            val candidate = currentDate.plusDays(offset.toLong() + 1)
+            if (candidate.dayOfWeek in activeDaysOfWeek) {
+                return ScheduleResult.ScheduledTomorrow(candidate.atTime(windowStartTime))
+            }
+        }
+        return ScheduleResult.ScheduledTomorrow(
+            currentDate.plusDays(1).atTime(windowStartTime),
+        )
     }
 }

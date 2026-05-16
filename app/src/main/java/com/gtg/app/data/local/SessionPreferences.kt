@@ -6,6 +6,7 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import java.time.DayOfWeek
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -44,6 +45,7 @@ class SessionPreferences @Inject constructor(
         private const val KEY_CALENDAR_SELECTED_IDS = "calendar_selected_ids"
         private const val KEY_CALENDAR_SHOW_TITLES = "calendar_show_titles"
         private const val KEY_CALENDAR_OVERRIDDEN_IDS = "calendar_overridden_event_ids"
+        private const val KEY_ACTIVE_DAYS_OF_WEEK = "active_days_of_week"
 
         const val DEFAULT_BASE_INTERVAL = 45L
         const val DEFAULT_DAILY_SET_TARGET = 10
@@ -137,6 +139,16 @@ class SessionPreferences @Inject constructor(
     val calendarOverriddenEventIds: Set<Long>
         get() = prefs.getString(KEY_CALENDAR_OVERRIDDEN_IDS, null).toLongSet()
 
+    /**
+     * Dias da semana em que o scheduler pode disparar alarmes. Default = todos.
+     * Dias removidos rolam o alarme para o próximo dia ativo.
+     */
+    val activeDaysOfWeek: Set<DayOfWeek>
+        get() {
+            val raw = prefs.getString(KEY_ACTIVE_DAYS_OF_WEEK, null)
+            return if (raw == null) DayOfWeek.entries.toSet() else raw.toDayOfWeekSet()
+        }
+
     // ── Escrita ──────────────────────────────────────────────────
 
     fun setSessionActive(active: Boolean) {
@@ -212,6 +224,10 @@ class SessionPreferences @Inject constructor(
         prefs.edit().putString(KEY_CALENDAR_OVERRIDDEN_IDS, current.toCsv()).apply()
     }
 
+    fun setActiveDaysOfWeek(days: Set<DayOfWeek>) {
+        prefs.edit().putString(KEY_ACTIVE_DAYS_OF_WEEK, days.toDayOfWeekCsv()).apply()
+    }
+
     fun clearSession() {
         prefs.edit()
             .putBoolean(KEY_IS_SESSION_ACTIVE, false)
@@ -252,4 +268,13 @@ private fun String?.toLongSet(): Set<Long> =
     else this.split(",").mapNotNull { it.trim().toLongOrNull() }.toSet()
 
 private fun Set<Long>.toCsv(): String = joinToString(",")
+
+private fun String.toDayOfWeekSet(): Set<DayOfWeek> =
+    if (this.isBlank()) emptySet()
+    else this.split(",").mapNotNull { token ->
+        token.trim().toIntOrNull()?.takeIf { it in 1..7 }?.let { DayOfWeek.of(it) }
+    }.toSet()
+
+private fun Set<DayOfWeek>.toDayOfWeekCsv(): String =
+    joinToString(",") { it.value.toString() }
 

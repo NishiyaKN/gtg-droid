@@ -2,6 +2,7 @@ package com.gtg.app.domain.usecase
 
 import com.gtg.app.domain.model.Exercise
 import com.gtg.app.domain.model.ScheduleResult
+import java.time.DayOfWeek
 import java.time.LocalDateTime
 import javax.inject.Inject
 
@@ -55,6 +56,7 @@ class PreviewTodayRoutineUseCase @Inject constructor(
         firstExerciseIndex: Int,
         baseIntervalMinutes: Long,
         isFirstAlarmScheduled: Boolean,
+        activeDaysOfWeek: Set<DayOfWeek> = DayOfWeek.entries.toSet(),
         maxIterations: Int = 12,
     ): List<PlannedSet> {
         if (activeExercises.isEmpty()) return emptyList()
@@ -89,6 +91,7 @@ class PreviewTodayRoutineUseCase @Inject constructor(
                 checkTime = previousAlarm,
                 baseIntervalMinutes = baseIntervalMinutes,
                 now = previousAlarm,
+                activeDaysOfWeek = activeDaysOfWeek,
             )
 
             when (nextResult) {

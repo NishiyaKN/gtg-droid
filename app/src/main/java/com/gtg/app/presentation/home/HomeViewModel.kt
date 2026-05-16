@@ -288,6 +288,7 @@ class HomeViewModel @Inject constructor(
                 val candidate = dynamicScheduler.calculateNextAlarm(
                     checkTime = LocalDateTime.now(),
                     baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
+                    activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
                 )
                 when (candidate) {
                     is ScheduleResult.Scheduled -> {
@@ -311,6 +312,7 @@ class HomeViewModel @Inject constructor(
                 firstExerciseIndex = firstIndex,
                 baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
                 isFirstAlarmScheduled = isScheduled,
+                activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
             )
 
             _state.update { it.copy(routinePreview = preview) }
@@ -434,6 +436,7 @@ class HomeViewModel @Inject constructor(
             when (val result = dynamicScheduler.calculateNextAlarm(
                 checkTime = now,
                 baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
+                activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
             )) {
                 is ScheduleResult.Scheduled -> scheduleAndPersist(result.dateTime, exercise)
                 is ScheduleResult.ScheduledTomorrow -> scheduleAndPersist(result.dateTime, exercise)
@@ -536,6 +539,7 @@ class HomeViewModel @Inject constructor(
             when (val result = dynamicScheduler.calculateNextAlarm(
                 checkTime = now,
                 baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
+                activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
             )) {
                 is ScheduleResult.Scheduled -> scheduleAndPersist(result.dateTime, nextExercise)
                 is ScheduleResult.ScheduledTomorrow -> scheduleAndPersist(result.dateTime, nextExercise)
@@ -579,6 +583,7 @@ class HomeViewModel @Inject constructor(
             val result = dynamicScheduler.calculateNextAlarm(
                 checkTime = anchor,
                 baseIntervalMinutes = newIntervalMinutes,
+                activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
             )
         ) {
             is ScheduleResult.Scheduled -> result.dateTime

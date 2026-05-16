@@ -106,7 +106,13 @@ class AlarmViewModel @Inject constructor(
             return
         }
 
-        when (val result = dynamicScheduler.calculateNextAlarm(checkTime, interval)) {
+        when (
+            val result = dynamicScheduler.calculateNextAlarm(
+                checkTime = checkTime,
+                baseIntervalMinutes = interval,
+                activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
+            )
+        ) {
             is ScheduleResult.Scheduled -> {
                 scheduleAndPersist(result.dateTime, nextExercise)
             }

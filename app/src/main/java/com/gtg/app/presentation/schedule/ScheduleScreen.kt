@@ -136,13 +136,25 @@ fun ScheduleScreen(viewModel: ScheduleViewModel = hiltViewModel()) {
                     onDayClick = viewModel::openCreateDialogForDate,
                 )
                 ScheduleTab.LIST -> {
-                    val combined = remember(state.blocks, state.calendarBlocksByDate) {
+                    val today = LocalDate.now()
+                    val combined = remember(state.blocks, state.calendarBlocksByDate, today) {
                         buildList {
-                            state.blocks.forEach {
-                                add(DisplayBlock(it, BlockSource.MANUAL))
-                            }
+                            // Manuais primeiro. Recorrentes (DAILY/WEEKLY/MONTHLY)
+                            // sempre entram; NONE só se a data específica é hoje
+                            // ou futura.
+                            state.blocks
+                                .filter { block ->
+                                    when (block.recurrence) {
+                                        Recurrence.NONE -> block.specificDate
+                                            ?.let { !it.isBefore(today) } ?: true
+                                        else -> true
+                                    }
+                                }
+                                .forEach { add(DisplayBlock(it, BlockSource.MANUAL)) }
+                            // Calendar abaixo, ordenado por dia, dias passados omitidos.
                             state.calendarBlocksByDate
                                 .toSortedMap()
+                                .filterKeys { !it.isBefore(today) }
                                 .values
                                 .forEach { addAll(it) }
                         }
@@ -629,6 +641,47 @@ private fun PersonalizeCalendarDialog(
     )
 }
 
+@Composable
+private fun ExistingBlockRow(item: DisplayBlock) {
+    val isCalendar = item.source == BlockSource.CALENDAR
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            imageVector = if (isCalendar) Icons.Default.CalendarMonth else Icons.Default.DoNotDisturb,
+            contentDescription = null,
+            tint = if (isCalendar) GtgPrimary else GtgError.copy(alpha = 0.7f),
+            modifier = Modifier.size(16.dp),
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = item.block.title.ifBlank { if (isCalendar) "Ocupado" else "Bloco" },
+                color = Color.White,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                maxLines = 1,
+            )
+            // Para manuais recorrentes mostra a regra (ex: "Todos os dias"),
+            // para o resto o horário já é informativo o suficiente.
+            if (!isCalendar && item.block.recurrence != Recurrence.NONE) {
+                Text(
+                    text = formatRecurrence(item.block),
+                    color = Color.White.copy(alpha = 0.45f),
+                    fontSize = 11.sp,
+                )
+            }
+        }
+        Text(
+            text = formatTimeRange(item.block),
+            color = GtgPrimary,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+        )
+    }
+}
+
 private fun formatTimeRange(block: InactivityBlock): String {
     val start = "%02d:%02d".format(block.startTime.hour, block.startTime.minute)
     val end = "%02d:%02d".format(block.endTime.hour, block.endTime.minute)
@@ -683,6 +736,25 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
         unfocusedTextColor = Color.White,
     )
 
+    // Blocos já marcados no dia clicado (qualquer fonte). Para edição, esconde
+    // o próprio bloco em edição para evitar confundir o usuário.
+    val existingForDay = remember(
+        state.blocks,
+        state.calendarBlocksByDate,
+        state.dialogDate,
+        state.editingBlock,
+    ) {
+        val date = state.dialogDate
+        val manuals = state.blocks
+            .asSequence()
+            .filter { it.id != state.editingBlock?.id }
+            .filter { it.isActiveOn(date) }
+            .map { DisplayBlock(it, BlockSource.MANUAL) }
+            .toList()
+        val calendars = state.calendarBlocksByDate[date].orEmpty()
+        manuals + calendars
+    }
+
     AlertDialog(
         onDismissRequest = viewModel::dismissDialog,
         containerColor = GtgSurface,
@@ -695,6 +767,25 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
         },
         text = {
             Column {
+                // Mostra o que já existe naquele dia — só quando criando (não editando).
+                if (!isEditing && existingForDay.isNotEmpty()) {
+                    Text(
+                        text = "JÁ MARCADO NESTE DIA",
+                        color = Color.White.copy(alpha = 0.45f),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp,
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    existingForDay.forEachIndexed { index, item ->
+                        if (index > 0) Spacer(modifier = Modifier.height(6.dp))
+                        ExistingBlockRow(item)
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                    androidx.compose.material3.HorizontalDivider(color = GtgSurfaceVariant)
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
                 // Título
                 OutlinedTextField(
                     value = state.dialogTitle,

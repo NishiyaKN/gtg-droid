@@ -129,6 +129,13 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        ActiveDaysSection(
+            active = state.activeDaysOfWeek,
+            onToggle = viewModel::toggleActiveDay,
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         BaseIntervalSection(
             minutes = state.baseIntervalMinutes,
             onChange = viewModel::setBaseInterval,
@@ -277,6 +284,48 @@ private fun ActivityWindowSection(
                 Spacer(modifier = Modifier.width(8.dp))
             }
             Text(label, fontWeight = FontWeight.SemiBold)
+        }
+    }
+}
+
+// ── Dias da semana ativos ────────────────────────────────────────
+
+@Composable
+private fun ActiveDaysSection(
+    active: Set<java.time.DayOfWeek>,
+    onToggle: (java.time.DayOfWeek) -> Unit,
+) {
+    val locale = java.util.Locale.forLanguageTag("pt-BR")
+    SectionCard(
+        icon = Icons.Default.Schedule,
+        title = "Dias da Semana",
+        description = "Dias em que o app pode disparar alarmes.",
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            java.time.DayOfWeek.entries.forEach { day ->
+                val selected = day in active
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(androidx.compose.foundation.shape.CircleShape)
+                        .background(if (selected) GtgPrimary else GtgSurfaceVariant)
+                        .clickable { onToggle(day) },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        text = day.getDisplayName(
+                            java.time.format.TextStyle.NARROW,
+                            locale,
+                        ),
+                        color = if (selected) Color.White else Color.White.copy(alpha = 0.5f),
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+            }
         }
     }
 }
