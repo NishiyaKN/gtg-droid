@@ -16,11 +16,13 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.DayOfWeek
 import java.time.LocalTime
 import javax.inject.Inject
@@ -80,6 +82,14 @@ class SettingsViewModel @Inject constructor(
     private val _state = MutableStateFlow(SettingsUiState())
     val state: StateFlow<SettingsUiState> = _state.asStateFlow()
 
+    // Cache de títulos de ringtone resolvidos por URI. RingtoneManager.getTitle
+    // é I/O síncrono e custa 50-200ms por chamada — antes era invocado a cada
+    // emissão de observeChanges no main thread, congelando a primeira
+    // composição da Settings. Cache + IO dispatcher + atualização em duas
+    // fases (prefs imediato, título quando resolvido) resolve.
+    // Acessado apenas de viewModelScope (Main.immediate) — sem sync needed.
+    private val titleCache = mutableMapOf<String?, String>()
+
     init {
         // Observa a janela ativa do Room. Reseta os campos editáveis sempre que
         // a persistência mudar — exceto se o usuário estiver em edição (dirty).
@@ -112,13 +122,17 @@ class SettingsViewModel @Inject constructor(
             // (o snapshot final já reflete os 5 campos).
             sessionPrefs.observeChanges().conflate().collect {
                 val uri = sessionPrefs.alarmSoundUri
-                _state.update {
-                    it.copy(
+                val cachedTitle = titleCache[uri]
+                // Emite imediatamente todos os campos. Para o título: usa
+                // o cache se hit; se miss, preserva o título anterior do
+                // state e dispara resolução async abaixo.
+                _state.update { current ->
+                    current.copy(
                         baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
                         dailySetTarget = sessionPrefs.dailySetTarget,
                         bypassDnd = sessionPrefs.bypassDnd,
                         alarmSoundUri = uri,
-                        alarmSoundTitle = resolveSoundTitle(uri),
+                        alarmSoundTitle = cachedTitle ?: current.alarmSoundTitle,
                         isCustomSound = uri != null,
                         overshootRepeatEnabled = sessionPrefs.overshootRepeatEnabled,
                         overshootRepeatMinutes = sessionPrefs.overshootRepeatMinutes,
@@ -128,23 +142,35 @@ class SettingsViewModel @Inject constructor(
                         activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
                     )
                 }
+                // Resolução async do título — não bloqueia o collect.
+                if (cachedTitle == null) {
+                    launch {
+                        val title = resolveSoundTitle(uri)
+                        titleCache[uri] = title
+                        _state.update { it.copy(alarmSoundTitle = title) }
+                    }
+                }
             }
         }
     }
 
     /**
-     * Resolve o nome legível do som via RingtoneManager.
+     * Resolve o nome legível do som via RingtoneManager. **suspend + IO**: a
+     * chamada `getRingtone().getTitle()` é I/O síncrono que custa 50-200ms;
+     * antes corria no main thread a cada emissão de observeChanges.
+     *
      * Para URI nula, retorna o título do som de alarme padrão do sistema.
      * Fallback seguro se a URI for inválida ou inacessível.
      */
-    private fun resolveSoundTitle(uriString: String?): String {
-        val uri: Uri = uriString?.let(Uri::parse)
-            ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-            ?: return "Padrão do sistema"
-        return runCatching {
-            RingtoneManager.getRingtone(context, uri)?.getTitle(context)
-        }.getOrNull() ?: "Padrão do sistema"
-    }
+    private suspend fun resolveSoundTitle(uriString: String?): String =
+        withContext(Dispatchers.IO) {
+            val uri: Uri = uriString?.let(Uri::parse)
+                ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                ?: return@withContext "Padrão do sistema"
+            runCatching {
+                RingtoneManager.getRingtone(context, uri)?.getTitle(context)
+            }.getOrNull() ?: "Padrão do sistema"
+        }
 
     // ── Janela de Atividade ──────────────────────────────────────
 
@@ -215,11 +241,17 @@ class SettingsViewModel @Inject constructor(
      * O `observeChanges()` re-emite o estado com o título atualizado.
      */
     fun setAlarmSound(uri: Uri?) {
-        sessionPrefs.setAlarmSoundUri(uri?.toString())
+        // Invalida a entrada de cache da URI a ser definida — força
+        // re-resolução. Útil quando a URI atual passou a ser inválida (som
+        // deletado no sistema) e o usuário escolhe uma nova.
+        val uriStr = uri?.toString()
+        titleCache.remove(uriStr)
+        sessionPrefs.setAlarmSoundUri(uriStr)
     }
 
     /** Reset para o som padrão de alarme do sistema. */
     fun resetAlarmSound() {
+        titleCache.remove(null)
         sessionPrefs.setAlarmSoundUri(null)
     }
 
