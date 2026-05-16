@@ -1,5 +1,8 @@
 package com.gtg.app.presentation.navigation
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -89,10 +92,19 @@ fun GtgNavHost() {
             }
         },
     ) { padding ->
+        // navigation-compose 2.8.x default é swap instantâneo; sem isto, qualquer
+        // stutter da primeira composição da nova tela fica visualmente bruto.
+        // Fade ~220ms entrando, 180ms saindo (saída um pouco mais rápida sustenta
+        // a sensação de "puxar a nova tela à frente"). 220ms está abaixo do
+        // limiar de 300ms onde a transição passaria a parecer lenta.
         NavHost(
             navController = navController,
             startDestination = Route.HOME.route,
             modifier = Modifier.padding(padding),
+            enterTransition = { fadeIn(animationSpec = tween(durationMillis = 220)) },
+            exitTransition = { fadeOut(animationSpec = tween(durationMillis = 180)) },
+            popEnterTransition = { fadeIn(animationSpec = tween(durationMillis = 220)) },
+            popExitTransition = { fadeOut(animationSpec = tween(durationMillis = 180)) },
         ) {
             composable(Route.HOME.route) {
                 HomeScreen()
