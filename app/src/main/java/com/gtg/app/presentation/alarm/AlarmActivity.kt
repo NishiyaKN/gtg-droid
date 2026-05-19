@@ -12,6 +12,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +34,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -103,7 +105,9 @@ class AlarmActivity : ComponentActivity() {
                 AlarmScreen(
                     exerciseName = viewModel.exerciseName,
                     targetReps = viewModel.targetReps,
+                    snoozeMinutes = viewModel.snoozeMinutes,
                     onCheck = viewModel::performCheck,
+                    onSnooze = viewModel::performSnooze,
                     onSkip = viewModel::performSkip,
                 )
             }
@@ -167,7 +171,9 @@ class AlarmActivity : ComponentActivity() {
 private fun AlarmScreen(
     exerciseName: String,
     targetReps: Int,
+    snoozeMinutes: Int,
     onCheck: () -> Unit,
+    onSnooze: () -> Unit,
     onSkip: () -> Unit,
 ) {
     // Animação pulsante no ícone para atrair atenção
@@ -294,6 +300,33 @@ private fun AlarmScreen(
                     text = stringResource(R.string.alarm_do_check),
                     fontSize = 20.sp,
                     fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    textAlign = TextAlign.Center,
+                )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+
+            // ── Botão Snooze — secundário ───────────────────────
+            // Label dinâmico lê snoozeMinutes (= overshootRepeatMinutes em
+            // SessionPreferences). AdaptiveText acomoda traduções longas
+            // ("Adiar 15 min") ou font-scale XL.
+            OutlinedButton(
+                onClick = onSnooze,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    containerColor = GtgSurface,
+                    contentColor = Color.White,
+                ),
+                border = BorderStroke(1.dp, Color.White.copy(alpha = 0.25f)),
+            ) {
+                AdaptiveText(
+                    text = stringResource(R.string.alarm_snooze, snoozeMinutes),
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Medium,
                     maxLines = 2,
                     textAlign = TextAlign.Center,
                 )
