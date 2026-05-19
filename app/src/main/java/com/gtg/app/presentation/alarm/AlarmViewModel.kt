@@ -101,6 +101,61 @@ class AlarmViewModel @Inject constructor(
     }
 
     /**
+     * Usuário pediu para adiar este set por [SessionPreferences.overshootRepeatMinutes].
+     *
+     * Reagenda o alarme PRIMARY para `now + overshootRepeatMinutes` mantendo
+     * o MESMO exercício. Não rotaciona, não registra log.
+     *
+     * Deliberadamente NÃO passa pelo [DynamicSchedulerUseCase] — as 5 regras
+     * (especialmente "descanso mínimo 20 min", regra 3) empurrariam um snooze
+     * de 5 min para 20 min e quebrariam a semântica do botão. Snooze é
+     * deslocamento direto sob demanda do usuário, não cálculo de cadência.
+     */
+    fun performSnooze() {
+        viewModelScope.launch {
+            dismissActiveAlarmSideEffects()
+
+            val now = LocalDateTime.now()
+            val nowMillis = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val snoozeMinutes = sessionPrefs.overshootRepeatMinutes.toLong()
+            val nextDateTime = now.plusMinutes(snoozeMinutes)
+            val nextMillis = nextDateTime
+                .atZone(ZoneId.systemDefault())
+                .toInstant()
+                .toEpochMilli()
+
+            alarmScheduler.cancel()
+            alarmScheduler.schedule(
+                triggerAt = nextDateTime,
+                exerciseId = exerciseId,
+                exerciseName = exerciseName,
+                targetReps = targetReps,
+            )
+
+            // Âncora para recálculo dinâmico se o usuário mudar baseInterval
+            // logo após snoozar — sem isso, rescheduleFromAnchor usaria
+            // o último Check real e deslocaria o snooze de forma inesperada.
+            sessionPrefs.setLastCheck(nowMillis)
+            sessionPrefs.setNextAlarm(
+                epochMillis = nextMillis,
+                exerciseId = exerciseId,
+                exerciseName = exerciseName,
+                targetReps = targetReps,
+            )
+
+            _actionCompleted.value = true
+        }
+    }
+
+    /**
+     * Intervalo de snooze que será exibido no botão da [AlarmActivity].
+     * Snapshot lido uma vez por instância — a Activity não sobrevive a
+     * mudanças de Settings durante o disparo, então streaming reativo seria
+     * over-engineering (KD-P5 do plano).
+     */
+    val snoozeMinutes: Int = sessionPrefs.overshootRepeatMinutes
+
+    /**
      * Dispensa o alarme atual: para som, cancela notificação heads-up e
      * cancela qualquer re-alerta automático (overshoot) pendente.
      *
