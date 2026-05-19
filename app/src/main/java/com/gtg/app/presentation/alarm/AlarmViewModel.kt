@@ -1,5 +1,7 @@
 package com.gtg.app.presentation.alarm
 
+import android.content.Context
+import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -13,6 +15,7 @@ import com.gtg.app.domain.scheduler.AlarmScheduler
 import com.gtg.app.domain.usecase.DynamicSchedulerUseCase
 import com.gtg.app.domain.usecase.pickNextExerciseInRotation
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -43,6 +46,7 @@ class AlarmViewModel @Inject constructor(
     private val dynamicScheduler: DynamicSchedulerUseCase,
     private val alarmScheduler: AlarmScheduler,
     private val sessionPrefs: SessionPreferences,
+    @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
     // Dados vindos do Intent (propagados automaticamente pelo SavedStateHandle)
@@ -58,6 +62,10 @@ class AlarmViewModel @Inject constructor(
      */
     fun performCheck() {
         viewModelScope.launch {
+            // Cancela overshoot + para som + fecha notificação ANTES de reagendar,
+            // para não deixar overshoot disparando com extras antigas após o Check.
+            dismissActiveAlarmSideEffects()
+
             val now = LocalDateTime.now()
 
             // 1. Registrar ExerciseLog — guard contra exerciseId inválido
@@ -86,9 +94,24 @@ class AlarmViewModel @Inject constructor(
      */
     fun performSkip() {
         viewModelScope.launch {
+            dismissActiveAlarmSideEffects()
             scheduleNext(checkTime = LocalDateTime.now())
             _actionCompleted.value = true
         }
+    }
+
+    /**
+     * Dispensa o alarme atual: para som, cancela notificação heads-up e
+     * cancela qualquer re-alerta automático (overshoot) pendente.
+     *
+     * Paralelo a [com.gtg.app.presentation.home.HomeViewModel.dismissActiveAlarm].
+     * Replicado aqui em vez de extraído — KD1 do brainstorm:
+     * helpers de 3 linhas com 2 chamadores não justificam abstração compartilhada.
+     */
+    private fun dismissActiveAlarmSideEffects() {
+        AlarmSoundPlayer.stop()
+        NotificationManagerCompat.from(appContext).cancel(AlarmReceiver.NOTIFICATION_ID)
+        alarmScheduler.cancelOvershoot()
     }
 
     /**
