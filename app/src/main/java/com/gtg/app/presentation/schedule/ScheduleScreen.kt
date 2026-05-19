@@ -79,7 +79,6 @@ import java.time.LocalDate
 import java.time.YearMonth
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
-import java.util.Locale
 
 @Composable
 fun ScheduleScreen(viewModel: ScheduleViewModel = hiltViewModel()) {
@@ -290,7 +289,7 @@ private fun CalendarMonthView(
     onToday: () -> Unit,
     onDayClick: (LocalDate) -> Unit,
 ) {
-    val locale = Locale("pt", "BR")
+    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
     val today = LocalDate.now()
     val titleFormatter = remember(locale) {
         DateTimeFormatter.ofPattern("MMMM yyyy", locale)
@@ -994,7 +993,7 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
                                         Text(
                                             text = day.getDisplayName(
                                                 TextStyle.NARROW,
-                                                Locale("pt", "BR"),
+                                                androidx.compose.ui.platform.LocalConfiguration.current.locales[0],
                                             ),
                                             color = if (selected) {
                                                 Color.White
