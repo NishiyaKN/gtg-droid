@@ -48,6 +48,18 @@ android {
     }
 }
 
+// Toolchain JDK 17 — foojay-resolver (settings.gradle.kts) baixa do Adoptium
+// na primeira execução. Resolve incompat JDK 26 (sistema) × AGP/Android-36.
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+kotlin {
+    jvmToolchain(17)
+}
+
 dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.core.ktx)
@@ -77,4 +89,9 @@ dependencies {
     implementation(libs.androidx.room.runtime)
     implementation(libs.androidx.room.ktx)
     ksp(libs.androidx.room.compiler)
+
+    // Testing
+    testImplementation(libs.junit)
+    testImplementation(libs.mockk)
+    testImplementation(libs.kotlinx.coroutines.test)
 }
