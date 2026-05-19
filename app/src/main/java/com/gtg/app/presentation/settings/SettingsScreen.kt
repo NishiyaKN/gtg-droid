@@ -309,7 +309,7 @@ private fun ActiveDaysSection(
     active: Set<java.time.DayOfWeek>,
     onToggle: (java.time.DayOfWeek) -> Unit,
 ) {
-    val locale = java.util.Locale.forLanguageTag("pt-BR")
+    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
     SectionCard(
         icon = Icons.Default.Schedule,
         title = stringResource(R.string.settings_active_days_title),
