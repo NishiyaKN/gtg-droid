@@ -144,5 +144,59 @@ class AlarmViewModelTest {
         }
     }
 
-    // Tests 3-5 (performSnooze) virão em U3.
+    // ── Test 3 — R2 — performSnooze mantém exercicio, sem log ────────
+
+    @Test
+    fun `performSnooze cancela overshoot, mantem exercicio e nao registra log`() = runTest {
+        val vm = buildViewModel()
+
+        vm.performSnooze()
+        advanceUntilIdle()
+
+        verify(exactly = 1) { alarmScheduler.cancelOvershoot() }
+        verify {
+            alarmScheduler.schedule(
+                triggerAt = any(),
+                exerciseId = 1L,
+                exerciseName = "Flexão",
+                targetReps = 10,
+            )
+        }
+        coVerify(exactly = 0) { exerciseLogRepository.insert(any<ExerciseLog>()) }
+        coVerify(exactly = 0) {
+            dynamicScheduler.calculateNextAlarm(any(), any(), any())
+        }
+        verify {
+            sessionPrefs.setNextAlarm(
+                epochMillis = any(),
+                exerciseId = 1L,
+                exerciseName = "Flexão",
+                targetReps = 10,
+            )
+        }
+    }
+
+    // ── Test 4 — performSnooze grava lastCheck ──────────────────────
+
+    @Test
+    fun `performSnooze grava lastCheckMillis`() = runTest {
+        val vm = buildViewModel()
+
+        vm.performSnooze()
+        advanceUntilIdle()
+
+        verify { sessionPrefs.setLastCheck(any()) }
+    }
+
+    // ── Test 5 — performSnooze sinaliza actionCompleted ─────────────
+
+    @Test
+    fun `performSnooze define actionCompleted=true ao final`() = runTest {
+        val vm = buildViewModel()
+
+        vm.performSnooze()
+        advanceUntilIdle()
+
+        assertTrue(vm.actionCompleted.value)
+    }
 }
