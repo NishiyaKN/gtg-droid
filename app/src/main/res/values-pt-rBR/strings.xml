@@ -198,4 +198,5 @@
     <string name="alarm_reps_label">repetições</string>
     <string name="alarm_do_check">FAZER CHECK</string>
     <string name="alarm_skip">Pular esta série</string>
+    <string name="alarm_snooze">Adiar %1$d min</string>
 </resources>
