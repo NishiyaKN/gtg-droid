@@ -60,6 +60,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -309,7 +310,7 @@ private fun ActiveDaysSection(
     active: Set<java.time.DayOfWeek>,
     onToggle: (java.time.DayOfWeek) -> Unit,
 ) {
-    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
+    val locale = LocalConfiguration.current.locales[0]
     SectionCard(
         icon = Icons.Default.Schedule,
         title = stringResource(R.string.settings_active_days_title),

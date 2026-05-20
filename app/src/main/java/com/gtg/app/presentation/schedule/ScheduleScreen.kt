@@ -1,6 +1,7 @@
 package com.gtg.app.presentation.schedule
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -289,7 +290,7 @@ private fun CalendarMonthView(
     onToday: () -> Unit,
     onDayClick: (LocalDate) -> Unit,
 ) {
-    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
+    val locale = LocalConfiguration.current.locales[0]
     val today = LocalDate.now()
     val titleFormatter = remember(locale) {
         DateTimeFormatter.ofPattern("MMMM yyyy", locale)
@@ -726,7 +727,7 @@ private fun formatTimeRange(block: InactivityBlock): String {
 
 @Composable
 private fun formatRecurrence(block: InactivityBlock): String {
-    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
+    val locale = LocalConfiguration.current.locales[0]
     return when (block.recurrence) {
         Recurrence.NONE -> block.specificDate?.toString()
             ?: stringResource(R.string.recurrence_none)
@@ -974,6 +975,7 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
                             val narrow = maxWidth < 320.dp
                             val chipSize = if (narrow) 30.dp else 36.dp
                             val gap = if (narrow) 2.dp else 6.dp
+                            val locale = LocalConfiguration.current.locales[0]
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(gap),
@@ -993,7 +995,7 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
                                         Text(
                                             text = day.getDisplayName(
                                                 TextStyle.NARROW,
-                                                androidx.compose.ui.platform.LocalConfiguration.current.locales[0],
+                                                locale,
                                             ),
                                             color = if (selected) {
                                                 Color.White
@@ -1069,7 +1071,7 @@ private fun recurrenceLabel(r: Recurrence): String = stringResource(
  */
 @Composable
 private fun recurrenceHelper(state: ScheduleUiState): String {
-    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
+    val locale = LocalConfiguration.current.locales[0]
     val date = state.dialogDate
     return when (state.dialogRecurrence) {
         Recurrence.NONE -> {
