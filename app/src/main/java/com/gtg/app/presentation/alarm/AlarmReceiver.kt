@@ -125,18 +125,15 @@ class AlarmReceiver : BroadcastReceiver() {
                 NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
             }
 
-            // Toca o som configurado pelo usuário (canal é silencioso de propósito —
-            // ver [GtgApplication.buildAlarmChannel]). USAGE_ALARM passa por DND,
-            // USAGE_NOTIFICATION_RINGTONE respeita DND.
-            val soundUri = sessionPrefs.alarmSoundUri?.let(Uri::parse)
-            AlarmSoundPlayer.play(
-                context = context,
-                soundUri = soundUri,
-                bypassDnd = sessionPrefs.bypassDnd,
-            )
-
-            // Re-alerta enquanto o usuário não silenciar / fizer Check / parar.
-            // Cancelamento: [HomeViewModel.dismissActiveAlarm].
+            // Re-alerta agendado ANTES de play() para fechar a janela de race em que
+            // heads-up notification permite ao usuário tocar Check/Skip/Snooze antes
+            // do scheduleOvershoot rodar. Se isso acontecesse, o cancelOvershoot
+            // do AlarmViewModel viraria no-op (nada armado ainda) e o overshoot
+            // seria armado em seguida com extras antigas — exatamente o bug que
+            // o cancelamento via AlarmActivity deveria eliminar.
+            //
+            // Cancelamento: [HomeViewModel.dismissActiveAlarm] ou
+            // [AlarmViewModel.dismissActiveAlarmSideEffects].
             //
             // Guard de dias ativos: se o usuário desabilitou o weekday de hoje
             // (corner case: filtro mudou entre o agendamento e o disparo), não
@@ -155,6 +152,16 @@ class AlarmReceiver : BroadcastReceiver() {
                     )
                 }
             }
+
+            // Toca o som configurado pelo usuário (canal é silencioso de propósito —
+            // ver [GtgApplication.buildAlarmChannel]). USAGE_ALARM passa por DND,
+            // USAGE_NOTIFICATION_RINGTONE respeita DND.
+            val soundUri = sessionPrefs.alarmSoundUri?.let(Uri::parse)
+            AlarmSoundPlayer.play(
+                context = context,
+                soundUri = soundUri,
+                bypassDnd = sessionPrefs.bypassDnd,
+            )
         } finally {
             if (wakeLock.isHeld) {
                 wakeLock.release()
