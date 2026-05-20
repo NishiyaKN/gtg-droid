@@ -1,5 +1,5 @@
 ---
-status: active
+status: completed
 type: fix
 created: 2026-05-19
 depth: standard
