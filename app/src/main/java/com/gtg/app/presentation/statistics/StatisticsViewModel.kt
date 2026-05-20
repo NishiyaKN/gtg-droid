@@ -83,7 +83,7 @@ class StatisticsViewModel @Inject constructor(
         val today = LocalDate.now()
         val weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY))
         val monthStart = today.withDayOfMonth(1)
-        val locale = Locale("pt", "BR")
+        val locale = Locale.getDefault()
         val (breakdownStart, breakdownEnd) = boundsFor(_state.value.selectedPeriod, today)
 
         // 14 queries Room independentes: 6 totais (3 periodos x 2 metricas) +
