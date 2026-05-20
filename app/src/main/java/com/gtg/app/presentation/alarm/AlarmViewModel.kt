@@ -8,11 +8,14 @@ import androidx.lifecycle.viewModelScope
 import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.domain.model.Exercise
 import com.gtg.app.domain.model.ExerciseLog
+import com.gtg.app.domain.model.ActivityWindow
 import com.gtg.app.domain.model.ScheduleResult
+import com.gtg.app.domain.repository.ActivityWindowRepository
 import com.gtg.app.domain.repository.ExerciseLogRepository
 import com.gtg.app.domain.repository.ExerciseRepository
 import com.gtg.app.domain.scheduler.AlarmScheduler
 import com.gtg.app.domain.usecase.DynamicSchedulerUseCase
+import com.gtg.app.domain.usecase.findNextActiveDate
 import com.gtg.app.domain.usecase.pickNextExerciseInRotation
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -43,6 +46,7 @@ class AlarmViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     private val exerciseRepository: ExerciseRepository,
     private val exerciseLogRepository: ExerciseLogRepository,
+    private val activityWindowRepository: ActivityWindowRepository,
     private val dynamicScheduler: DynamicSchedulerUseCase,
     private val alarmScheduler: AlarmScheduler,
     private val sessionPrefs: SessionPreferences,
@@ -53,6 +57,14 @@ class AlarmViewModel @Inject constructor(
     val exerciseId: Long = savedStateHandle[AlarmReceiver.EXTRA_EXERCISE_ID] ?: -1L
     val exerciseName: String = savedStateHandle[AlarmReceiver.EXTRA_EXERCISE_NAME] ?: "Exercício"
     val targetReps: Int = savedStateHandle[AlarmReceiver.EXTRA_TARGET_REPS] ?: 0
+
+    /**
+     * Intervalo de snooze exibido no botão da [AlarmActivity].
+     * Snapshot lido uma vez por instância — a Activity não sobrevive a
+     * mudanças de Settings durante o disparo, então streaming reativo seria
+     * over-engineering.
+     */
+    val snoozeMinutes: Int = sessionPrefs.overshootRepeatMinutes
 
     private val _actionCompleted = MutableStateFlow(false)
     val actionCompleted: StateFlow<Boolean> = _actionCompleted.asStateFlow()
@@ -106,19 +118,31 @@ class AlarmViewModel @Inject constructor(
      * Reagenda o alarme PRIMARY para `now + overshootRepeatMinutes` mantendo
      * o MESMO exercício. Não rotaciona, não registra log.
      *
-     * Deliberadamente NÃO passa pelo [DynamicSchedulerUseCase] — as 5 regras
-     * (especialmente "descanso mínimo 20 min", regra 3) empurrariam um snooze
-     * de 5 min para 20 min e quebrariam a semântica do botão. Snooze é
-     * deslocamento direto sob demanda do usuário, não cálculo de cadência.
+     * Deliberadamente NÃO passa pelo [DynamicSchedulerUseCase] (regra 3, descanso
+     * mínimo 20min, empurraria snooze=5min para 20min). Mas aplica DOIS limites
+     * do session bound: [SessionPreferences.activeDaysOfWeek] (snooze não pode
+     * disparar em dia desativado) e [ActivityWindow.endTime] (snooze não pode
+     * cair após o fim da janela do dia). Se algum dos dois falhar, snooze faz
+     * rollover para o início da janela do próximo dia ativo, paralelo ao que
+     * [com.gtg.app.presentation.home.HomeViewModel.rescheduleForNextDayKeepingExercise]
+     * faz quando alarme vence fora da janela.
+     *
+     * NÃO grava `lastCheckMillis`: gravar âncora falsa no snooze corrompe
+     * o `rescheduleFromAnchor` se o usuário mudar `baseInterval` durante o
+     * intervalo de snooze. Trade-off: mid-snooze interval change pode
+     * clobber o snooze, o que é menos pior do que contaminar a cadência futura.
      */
     fun performSnooze() {
         viewModelScope.launch {
             dismissActiveAlarmSideEffects()
 
             val now = LocalDateTime.now()
-            val nowMillis = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
-            val snoozeMinutes = sessionPrefs.overshootRepeatMinutes.toLong()
-            val nextDateTime = now.plusMinutes(snoozeMinutes)
+            val delayMinutes = sessionPrefs.overshootRepeatMinutes.toLong()
+            val rawNextDateTime = now.plusMinutes(delayMinutes)
+            val activeWindow = activityWindowRepository.getActiveWindow()
+            val activeDays = sessionPrefs.activeDaysOfWeek
+            val nextDateTime = clampSnoozeToBounds(rawNextDateTime, activeWindow, activeDays)
+
             val nextMillis = nextDateTime
                 .atZone(ZoneId.systemDefault())
                 .toInstant()
@@ -132,10 +156,6 @@ class AlarmViewModel @Inject constructor(
                 targetReps = targetReps,
             )
 
-            // Âncora para recálculo dinâmico se o usuário mudar baseInterval
-            // logo após snoozar — sem isso, rescheduleFromAnchor usaria
-            // o último Check real e deslocaria o snooze de forma inesperada.
-            sessionPrefs.setLastCheck(nowMillis)
             sessionPrefs.setNextAlarm(
                 epochMillis = nextMillis,
                 exerciseId = exerciseId,
@@ -148,20 +168,33 @@ class AlarmViewModel @Inject constructor(
     }
 
     /**
-     * Intervalo de snooze que será exibido no botão da [AlarmActivity].
-     * Snapshot lido uma vez por instância — a Activity não sobrevive a
-     * mudanças de Settings durante o disparo, então streaming reativo seria
-     * over-engineering (KD-P5 do plano).
+     * Garante que o snooze fica dentro de `activeDaysOfWeek` e antes de
+     * [ActivityWindow.endTime]. Se cair fora de qualquer um, faz rollover
+     * para o início da janela do próximo dia ativo. Sem [ActivityWindow]
+     * configurada, valida apenas `activeDaysOfWeek`.
      */
-    val snoozeMinutes: Int = sessionPrefs.overshootRepeatMinutes
+    private fun clampSnoozeToBounds(
+        candidate: LocalDateTime,
+        window: ActivityWindow?,
+        activeDays: Set<java.time.DayOfWeek>,
+    ): LocalDateTime {
+        val candidateDate = candidate.toLocalDate()
+        val dayOk = candidateDate.dayOfWeek in activeDays
+        val withinWindow = window == null || !candidate.toLocalTime().isAfter(window.endTime)
+        if (dayOk && withinWindow) return candidate
+
+        val nextDate = findNextActiveDate(candidateDate, activeDays)
+        val startTime = window?.startTime ?: java.time.LocalTime.of(0, 0)
+        return nextDate.atTime(startTime)
+    }
 
     /**
      * Dispensa o alarme atual: para som, cancela notificação heads-up e
      * cancela qualquer re-alerta automático (overshoot) pendente.
      *
      * Paralelo a [com.gtg.app.presentation.home.HomeViewModel.dismissActiveAlarm].
-     * Replicado aqui em vez de extraído — KD1 do brainstorm:
-     * helpers de 3 linhas com 2 chamadores não justificam abstração compartilhada.
+     * Replicado aqui em vez de extraído: helpers de 3 linhas com 2 chamadores
+     * não justificam abstração compartilhada.
      */
     private fun dismissActiveAlarmSideEffects() {
         AlarmSoundPlayer.stop()
