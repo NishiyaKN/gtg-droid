@@ -29,3 +29,7 @@ Sempre que for solicitado a alterar ou criar novo código, obedeça estritamente
 3.  **Permissões Modernas:** Qualquer nova feature que envolva background deve tratar silenciosamente e adequadamente as restrições introduzidas no Android 14 e 15 (ex: `USE_FULL_SCREEN_INTENT`, `SCHEDULE_EXACT_ALARM`).
 4.  **Simplicidade Visual:** Não importe bibliotecas externas de gráficos ou calendários. Use o Canvas nativo do Compose e LazyLists para manter o pacote leve e performático.
 5.  **Nenhum Código Obsoleto:** Não utilize APIs deprecadas. Se uma API foi deprecada, pesquise a alternativa moderna recomendada pelo Google para a API 35 antes de gerar o código.
+
+## 5. Conhecimento Documentado
+
+`docs/solutions/` contém soluções a problemas passados (bugs, patterns, convenções), organizadas por categoria (logic-errors, architecture-patterns, performance-issues, etc.) com YAML frontmatter (`module`, `tags`, `problem_type`). Relevante ao implementar ou debugar em áreas documentadas — especialmente alarm pipeline, scheduler e session state.
