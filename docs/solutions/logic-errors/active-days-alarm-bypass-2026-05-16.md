@@ -1,6 +1,7 @@
 ---
 title: "activeDaysOfWeek filter bypassed by multiple AlarmManager write paths"
 date: 2026-05-16
+last_updated: 2026-05-19
 category: logic-errors
 module: scheduler
 problem_type: logic_error
@@ -10,6 +11,8 @@ symptoms:
   - "Toggle de dia tem efeito para sessões NOVAS mas o alarme já agendado continua tocando no dia desativado"
   - "Após reboot, alarmes voltam a disparar em todos os dias, ignorando o filtro persistido"
   - "Overshoot re-alert (alarme dispara de novo em N min) ignora o filtro quando N min cruza meia-noite para dia inativo"
+  - "Snooze cruzando meia-noite para dia inativo dispara alarme mesmo com o dia desabilitado"
+  - "Snooze cruzando o fim da ActivityWindow arma o alarme fora da janela e dispara cascata de overshoots"
 root_cause: missing_validation
 resolution_type: code_fix
 severity: high
@@ -17,6 +20,7 @@ related_components:
   - HomeViewModel
   - BootReceiver
   - AlarmReceiver
+  - AlarmViewModel
   - DynamicSchedulerUseCase
   - RotationHelpers
 tags:
@@ -25,6 +29,8 @@ tags:
   - scheduler
   - boot-receiver
   - overshoot
+  - snooze
+  - activity-window
   - defense-in-depth
   - missing-validation
   - broadcast-receiver
@@ -36,12 +42,16 @@ tags:
 
 No app Android GtG, o filtro `activeDaysOfWeek` (Settings → "Dias da Semana") era aplicado apenas dentro de `DynamicSchedulerUseCase.calculateNextAlarm`. **Quatro outros caminhos no código armavam o `AlarmManager` diretamente, sem passar pelo filtro**. Alarmes continuavam disparando em dias que o usuário desativou — Bug A (toggle mid-sessão), Bug B (roll-over de fim de janela), Bug C (reboot), Bug D (overshoot cruzando meia-noite).
 
+**Update 2026-05-19:** um **5º writer** foi introduzido junto com o botão Snooze (`AlarmViewModel.performSnooze`). O método chamava `alarmScheduler.schedule(now + overshootRepeatMinutes)` sem validar contra `activeDaysOfWeek` nem contra `ActivityWindow.endTime`, replicando a mesma classe estrutural dos bugs A–D — Bug E. O fix está em "Solution → Bug E" abaixo.
+
 ## Symptoms
 
 - Usuário desativa Sábado e Domingo em Settings com sessão ativa. Alarme já agendado **continua disparando** no sábado seguinte. Reprodução reportada: *"Mudei Sáb/Dom com sessão ativa"*.
 - Após reboot do dispositivo, alarmes voltam a disparar em dias desativados — `nextAlarmMillis` persistido nunca era revalidado.
 - Overshoot re-alert agendado para `now + 5min` cruzando meia-noite para sábado (desativado) ainda dispara.
 - O fim-de-janela roll-over (`rescheduleForNextDayKeepingExercise`) joga o alarme para `today + 1` cego, sem checar se esse dia está ativo.
+- Snooze sexta 23:50 com `overshootRepeatMinutes=15` dispara alarme sábado 00:05 mesmo com `activeDaysOfWeek=[MON..FRI]`. O guard de `AlarmReceiver:76` só cobre `isOvershoot=true`; snooze arma como PRIMARY (`isOvershoot=false`), sem guard.
+- Snooze às 17:28 com janela 08:00–17:30 e delay=5min arma primary para 17:33 (fora da janela). `HomeViewModel.restartCountdown` só faz rollover quando `remaining < 0` E `now > windowEnd`; entre `windowEnd` e o fire do snooze o `remaining` ainda é positivo, sem rollover. `AlarmReceiver` então encadeia overshoots fora da janela.
 
 ## What Didn't Work
 
@@ -149,6 +159,48 @@ if (isOvershoot && LocalDateTime.now().dayOfWeek !in sessionPrefs.activeDaysOfWe
 }
 ```
 
+### Bug E — `AlarmViewModel.performSnooze` (5º writer, 2026-05-19)
+
+O plano de implementação (KD-P2 do `docs/plans/2026-05-19-001-fix-fullscreen-alarm-and-snooze-plan.md`) decidiu corretamente que snooze não passaria pelo `DynamicSchedulerUseCase` (regra 3 empurraria snooze=5min para 20min). Essa decisão deixou snooze sem **nenhum** dos guards de session bounds que o use case aplicava internamente — `activeDaysOfWeek` E `ActivityWindow.endTime`.
+
+Fix: helper `clampSnoozeToBounds` em `AlarmViewModel` + injeção de `ActivityWindowRepository`:
+
+```kotlin
+fun performSnooze() {
+    viewModelScope.launch {
+        dismissActiveAlarmSideEffects()
+
+        val now           = LocalDateTime.now()
+        val rawNext       = now.plusMinutes(sessionPrefs.overshootRepeatMinutes.toLong())
+        val activeWindow  = activityWindowRepository.getActiveWindow()
+        val activeDays    = sessionPrefs.activeDaysOfWeek
+        val nextDateTime  = clampSnoozeToBounds(rawNext, activeWindow, activeDays)
+
+        alarmScheduler.cancel()
+        alarmScheduler.schedule(triggerAt = nextDateTime, ...)
+        sessionPrefs.setNextAlarm(...)
+        _actionCompleted.value = true
+    }
+}
+
+private fun clampSnoozeToBounds(
+    candidate: LocalDateTime,
+    window: ActivityWindow?,
+    activeDays: Set<DayOfWeek>,
+): LocalDateTime {
+    val dayOk        = candidate.toLocalDate().dayOfWeek in activeDays
+    val withinWindow = window == null || !candidate.toLocalTime().isAfter(window.endTime)
+    if (dayOk && withinWindow) return candidate
+
+    // Rollover paralelo a HomeViewModel.rescheduleForNextDayKeepingExercise
+    val nextDate  = findNextActiveDate(candidate.toLocalDate(), activeDays)
+    val startTime = window?.startTime ?: LocalTime.of(0, 0)
+    return nextDate.atTime(startTime)
+}
+```
+
+Por que o guard do `AlarmReceiver:76` não bastava: ele cobre `isOvershoot=true`. Snooze arma `PRIMARY` (`isOvershoot=false`), sem guard. Ampliar o guard só captaria o problema **no fire** — o usuário veria o alarme sumindo sem feedback. A correção pertence ao site de agendamento: calcular `nextDateTime` correto antes de chamar `schedule()`.
+
 ## Why This Works
 
 A causa raiz é **estrutural**: o filtro existia em UM ponto (`calculateNextAlarm`), mas o `AlarmManager` tinha **múltiplos escritores independentes**. Centralizar o filtro no use case era necessário, mas não suficiente — cada escritor precisava (a) passar pelo gate único OU (b) aplicar o filtro inline.
@@ -210,8 +262,19 @@ Se invertido e `schedule()` falhar (ex: `SecurityException` se `SCHEDULE_EXACT_A
 **5. Quando adicionar um filtro/validation novo, grep MAIS amplo do que o ponto óbvio.**  
 A grep original buscou só `calculateNextAlarm|dynamicScheduler|DynamicSchedulerUseCase|previewTodayRoutine`. Deveria ter incluído `AlarmScheduler\.` para pegar TODOS os writers do recurso externo. Regra geral: ao adicionar filtro a um state-driven side-effect, busque pelo recurso externo (a *capacidade*), não só pela função que naturalmente o usaria.
 
+**6. Writers que não passam pelo `DynamicSchedulerUseCase` precisam aplicar bounds inline (Bug E, 2026-05-19).**  
+Ao adicionar qualquer novo caminho de agendamento que bypasse o use-case (por decisão intencional — ex: snooze que não deve passar pelas 5 regras), liste explicitamente cada garantia do use case e decida "aplicar" (replicar inline) ou "omitir" (documentar o motivo):
+
+- `activeDaysOfWeek`: `candidate.dayOfWeek` está no conjunto ativo?
+- `ActivityWindow.endTime`: `candidate.toLocalTime()` está antes do fim da janela?
+- Regra 3 (descanso mínimo 20min): aplicar? (Snooze: NÃO — empurraria snooze=5min para 20min.)
+- Atualização de `lastCheckMillis`: aplicar? (Snooze: NÃO — ver `docs/solutions/concurrency/alarm-pipeline-race-and-anchor-pitfalls.md`.)
+
+Se `activeDaysOfWeek` ou `endTime` falham, aplique rollover via `findNextActiveDate` + `window.startTime`. Omissão silenciosa é a raiz de todos os bugs desta família.
+
 ## Related Issues
 
 - Repo: `NishiyaKN/gtg-droid` no GitHub. Sem issues relacionadas registradas.
-- Commits: `d0d3e39` (introdução do feature `activeDaysOfWeek`), `5fc4f0b` (fix dos 4 caminhos), `a6d305f` (refinamentos pós code-review).
+- Commits: `d0d3e39` (introdução de `activeDaysOfWeek`), `5fc4f0b` (fix dos 4 caminhos), `a6d305f` (refinamentos pós code-review), `693575a` (Bug E — snooze respeita activeDaysOfWeek e ActivityWindow).
+- Doc relacionado: `docs/solutions/concurrency/alarm-pipeline-race-and-anchor-pitfalls.md` — race entre `AlarmReceiver.scheduleOvershoot` e `AlarmActivity.cancelOvershoot` + pitfall de `setLastCheck` no snooze. Bugs encontrados na mesma sessão de code review 2026-05-19.
 - Plano deferido: revalidação de `ActivityWindow` + `InactivityBlocks` no `BootReceiver` quando o dia é shiftado. Requer `goAsync()` + injeção de `DynamicSchedulerUseCase` no receiver — refactor com escopo próprio.
