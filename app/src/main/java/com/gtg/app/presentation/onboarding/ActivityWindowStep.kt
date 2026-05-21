@@ -49,8 +49,12 @@ internal fun ActivityWindowStep(
     viewModel: OnboardingViewModel = hiltViewModel(),
 ) {
     var startHour by remember { mutableIntStateOf(DEFAULT_START_HOUR) }
+    var startMinute by remember { mutableIntStateOf(0) }
     var endHour by remember { mutableIntStateOf(DEFAULT_END_HOUR) }
-    val valid = endHour > startHour
+    var endMinute by remember { mutableIntStateOf(0) }
+    // Comparação em minutos do dia para que 08:30 vs 09:00 vire 510 vs 540
+    // sem precisar tratar HH e MM separadamente.
+    val valid = (endHour * 60 + endMinute) > (startHour * 60 + startMinute)
 
     Column(
         modifier = Modifier
@@ -81,34 +85,22 @@ internal fun ActivityWindowStep(
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Top,
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = stringResource(R.string.onboarding_window_start_label),
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 13.sp,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                WheelNumberPicker(
-                    value = startHour,
-                    max = 23,
-                    onValueChange = { startHour = it },
-                )
-            }
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = stringResource(R.string.onboarding_window_end_label),
-                    color = Color.White.copy(alpha = 0.7f),
-                    fontSize = 13.sp,
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                WheelNumberPicker(
-                    value = endHour,
-                    max = 23,
-                    onValueChange = { endHour = it },
-                )
-            }
+            TimeColumn(
+                label = stringResource(R.string.onboarding_window_start_label),
+                hour = startHour,
+                minute = startMinute,
+                onHourChange = { startHour = it },
+                onMinuteChange = { startMinute = it },
+            )
+            TimeColumn(
+                label = stringResource(R.string.onboarding_window_end_label),
+                hour = endHour,
+                minute = endMinute,
+                onHourChange = { endHour = it },
+                onMinuteChange = { endMinute = it },
+            )
         }
 
         if (!valid) {
@@ -123,7 +115,7 @@ internal fun ActivityWindowStep(
 
         Button(
             onClick = {
-                viewModel.saveActivityWindow(startHour, endHour)
+                viewModel.saveActivityWindow(startHour, startMinute, endHour, endMinute)
                 onContinue()
             },
             enabled = valid,
@@ -156,6 +148,43 @@ internal fun ActivityWindowStep(
                 text = stringResource(R.string.onboarding_button_skip_all),
                 color = Color.White.copy(alpha = 0.4f),
                 fontSize = 13.sp,
+            )
+        }
+    }
+}
+
+@Composable
+private fun TimeColumn(
+    label: String,
+    hour: Int,
+    minute: Int,
+    onHourChange: (Int) -> Unit,
+    onMinuteChange: (Int) -> Unit,
+) {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(
+            text = label,
+            color = Color.White.copy(alpha = 0.7f),
+            fontSize = 13.sp,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            WheelNumberPicker(
+                value = hour,
+                max = 23,
+                onValueChange = onHourChange,
+            )
+            Text(
+                text = ":",
+                color = Color.White,
+                fontSize = 22.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(horizontal = 4.dp),
+            )
+            WheelNumberPicker(
+                value = minute,
+                max = 59,
+                onValueChange = onMinuteChange,
             )
         }
     }
