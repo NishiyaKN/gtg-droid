@@ -96,6 +96,7 @@ class AlarmActivity : ComponentActivity() {
                 LaunchedEffect(actionCompleted) {
                     if (actionCompleted) {
                         AlarmSoundPlayer.stop()
+                        VibrationPlayer.stop()
                         NotificationManagerCompat.from(this@AlarmActivity)
                             .cancel(AlarmReceiver.NOTIFICATION_ID)
                         finish()
@@ -106,6 +107,7 @@ class AlarmActivity : ComponentActivity() {
                     exerciseName = viewModel.exerciseName,
                     targetReps = viewModel.targetReps,
                     snoozeMinutes = viewModel.snoozeMinutes,
+                    visualEnabled = viewModel.visualEnabled,
                     onCheck = viewModel::performCheck,
                     onSnooze = viewModel::performSnooze,
                     onSkip = viewModel::performSkip,
@@ -120,6 +122,7 @@ class AlarmActivity : ComponentActivity() {
      */
     override fun onDestroy() {
         AlarmSoundPlayer.stop()
+        VibrationPlayer.stop()
         super.onDestroy()
     }
 
@@ -172,6 +175,7 @@ private fun AlarmScreen(
     exerciseName: String,
     targetReps: Int,
     snoozeMinutes: Int,
+    visualEnabled: Boolean,
     onCheck: () -> Unit,
     onSnooze: () -> Unit,
     onSkip: () -> Unit,
@@ -188,6 +192,20 @@ private fun AlarmScreen(
         label = "pulse_scale",
     )
 
+    // Pulse do fundo quando o usuário escolheu modalidade Visual. Range
+    // 0.3..1.0 multiplicado por 0.4 (cap = 0.4 alpha) preserva legibilidade
+    // dos botões Check/Snooze/Skip que ficam por cima. ~1Hz (500ms ida +
+    // reverse). Sem `visualEnabled` o overlay nem entra na recomposição.
+    val visualPulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f * 0.4f,
+        targetValue = 1.0f * 0.4f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "visual_pulse_alpha",
+    )
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -201,6 +219,14 @@ private fun AlarmScreen(
                 ),
             ),
     ) {
+        if (visualEnabled) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(GtgPrimary.copy(alpha = visualPulseAlpha)),
+            )
+        }
+
         // verticalScroll + Arrangement.Center: em portrait normal o conteúdo
         // cabe e fica visualmente centralizado; em landscape ou telas curtas
         // o usuário pode scrollar até botões. Sem o scroll, em landscape o

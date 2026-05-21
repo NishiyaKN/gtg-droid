@@ -66,6 +66,13 @@ class AlarmViewModel @Inject constructor(
      */
     val snoozeMinutes: Int = sessionPrefs.overshootRepeatMinutes
 
+    /**
+     * Snapshot one-shot da modalidade Visual no momento do disparo. Mesma
+     * justificativa do [snoozeMinutes] — a Activity não sobrevive a mudanças
+     * mid-alarm em Settings.
+     */
+    val visualEnabled: Boolean = sessionPrefs.visualEnabled
+
     private val _actionCompleted = MutableStateFlow(false)
     val actionCompleted: StateFlow<Boolean> = _actionCompleted.asStateFlow()
 
