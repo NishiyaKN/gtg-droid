@@ -78,7 +78,7 @@ class AlarmViewModelTest {
         every { sessionPrefs.activeDaysOfWeek } returns DayOfWeek.entries.toSet()
         every { sessionPrefs.overshootRepeatMinutes } returns 5
         coEvery {
-            dynamicScheduler.calculateNextAlarm(any(), any(), any())
+            dynamicScheduler.calculateNextAlarm(any(), any(), any(), any(), any())
         } returns ScheduleResult.Scheduled(LocalDateTime.now().plusMinutes(45))
     }
 
@@ -183,7 +183,7 @@ class AlarmViewModelTest {
     @Test
     fun `Check com NoWindowConfigured limpa sessao`() = runTest {
         coEvery {
-            dynamicScheduler.calculateNextAlarm(any(), any(), any())
+            dynamicScheduler.calculateNextAlarm(any(), any(), any(), any(), any())
         } returns ScheduleResult.NoWindowConfigured
         val vm = buildViewModel()
 
@@ -200,7 +200,7 @@ class AlarmViewModelTest {
     fun `Check com ScheduledTomorrow agenda no dia seguinte`() = runTest {
         val tomorrow = LocalDateTime.now().plusDays(1).withHour(8).withMinute(0)
         coEvery {
-            dynamicScheduler.calculateNextAlarm(any(), any(), any())
+            dynamicScheduler.calculateNextAlarm(any(), any(), any(), any(), any())
         } returns ScheduleResult.ScheduledTomorrow(tomorrow)
         val vm = buildViewModel()
 
@@ -234,7 +234,7 @@ class AlarmViewModelTest {
         }
         coVerify(exactly = 0) { exerciseLogRepository.insert(any<ExerciseLog>()) }
         coVerify(exactly = 0) {
-            dynamicScheduler.calculateNextAlarm(any(), any(), any())
+            dynamicScheduler.calculateNextAlarm(any(), any(), any(), any(), any())
         }
         verify(exactly = 1) {
             sessionPrefs.setNextAlarm(

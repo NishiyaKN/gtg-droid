@@ -11,6 +11,25 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
+ * Modo de cálculo de cadência do alarme primário.
+ *
+ * - [DYNAMIC]: comportamento padrão. `DynamicSchedulerUseCase` aplica as 5
+ *   regras (cálculo base, descanso mínimo 20m, colisão com `InactivityBlock`,
+ *   fim de janela, dia ativo).
+ * - [STRICT]: `next = lastCheck + baseInterval` exato. Ignora regra 3
+ *   (clamp 20m) e regra 4 (desvio por inatividade). Mantém regra 5 (fim
+ *   de janela → próximo dia ativo), windowStart adjustment e active-days.
+ *
+ * Vive aqui — não em `domain/model/` — porque é estritamente artefato de
+ * configuração lido por `SessionPreferences` e passado como parâmetro ao
+ * `DynamicSchedulerUseCase`. Não cruza repository boundary.
+ */
+enum class IntervalMode {
+    DYNAMIC,
+    STRICT,
+}
+
+/**
  * Persiste o estado volátil da sessão GtG via SharedPreferences.
  *
  * Este estado não pertence ao Room porque é efêmero (próximo alarme, sessão ativa)
@@ -52,6 +71,7 @@ class SessionPreferences @Inject constructor(
         private const val KEY_SOUND_ENABLED = "alert_sound_enabled"
         private const val KEY_VISUAL_ENABLED = "alert_visual_enabled"
         private const val KEY_VIBRATION_ENABLED = "alert_vibration_enabled"
+        private const val KEY_INTERVAL_MODE = "interval_mode"
 
         const val DEFAULT_BASE_INTERVAL = 45L
         const val DEFAULT_DAILY_SET_TARGET = 10
@@ -60,6 +80,7 @@ class SessionPreferences @Inject constructor(
         const val DEFAULT_SOUND_ENABLED = true
         const val DEFAULT_VISUAL_ENABLED = false
         const val DEFAULT_VIBRATION_ENABLED = false
+        val DEFAULT_INTERVAL_MODE = IntervalMode.DYNAMIC
         const val DEFAULT_BYPASS_DND = true
         const val DEFAULT_OVERSHOOT_ENABLED = true
         const val DEFAULT_OVERSHOOT_MINUTES = 5
@@ -125,6 +146,16 @@ class SessionPreferences @Inject constructor(
 
     val vibrationEnabled: Boolean
         get() = prefs.getBoolean(KEY_VIBRATION_ENABLED, DEFAULT_VIBRATION_ENABLED)
+
+    /**
+     * Modo de cálculo do alarme primário. Default [IntervalMode.DYNAMIC].
+     * Valor corrompido (não-enum) → fallback silencioso para DYNAMIC.
+     */
+    val intervalMode: IntervalMode
+        get() {
+            val raw = prefs.getString(KEY_INTERVAL_MODE, null) ?: return DEFAULT_INTERVAL_MODE
+            return runCatching { IntervalMode.valueOf(raw) }.getOrDefault(DEFAULT_INTERVAL_MODE)
+        }
 
     /** true quando o alarme disparou e aguarda o Check do usuário. */
     val isAlarmPending: Boolean
@@ -252,6 +283,10 @@ class SessionPreferences @Inject constructor(
 
     fun setVibrationEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_VIBRATION_ENABLED, enabled).apply()
+    }
+
+    fun setIntervalMode(mode: IntervalMode) {
+        prefs.edit().putString(KEY_INTERVAL_MODE, mode.name).apply()
     }
 
     fun setBypassDnd(enabled: Boolean) {

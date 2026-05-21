@@ -381,6 +381,7 @@ class HomeViewModel @Inject constructor(
                 checkTime = LocalDateTime.now(),
                 baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
                 activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
+                intervalMode = sessionPrefs.intervalMode,
             )
             when (candidate) {
                 is ScheduleResult.Scheduled -> {
@@ -405,6 +406,7 @@ class HomeViewModel @Inject constructor(
             baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
             isFirstAlarmScheduled = isScheduled,
             activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
+            intervalMode = sessionPrefs.intervalMode,
         )
 
         _state.update { it.copy(routinePreview = preview) }
@@ -533,6 +535,7 @@ class HomeViewModel @Inject constructor(
                 checkTime = now,
                 baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
                 activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
+                intervalMode = sessionPrefs.intervalMode,
             )) {
                 is ScheduleResult.Scheduled -> scheduleAndPersist(result.dateTime, exercise)
                 is ScheduleResult.ScheduledTomorrow -> scheduleAndPersist(result.dateTime, exercise)
@@ -636,6 +639,7 @@ class HomeViewModel @Inject constructor(
                 checkTime = now,
                 baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
                 activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
+                intervalMode = sessionPrefs.intervalMode,
             )) {
                 is ScheduleResult.Scheduled -> scheduleAndPersist(result.dateTime, nextExercise)
                 is ScheduleResult.ScheduledTomorrow -> scheduleAndPersist(result.dateTime, nextExercise)
@@ -685,6 +689,7 @@ class HomeViewModel @Inject constructor(
                 checkTime = anchor,
                 baseIntervalMinutes = intervalMinutes,
                 activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
+                intervalMode = sessionPrefs.intervalMode,
             )
         ) {
             is ScheduleResult.Scheduled -> result.dateTime

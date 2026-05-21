@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gtg.app.data.local.IntervalMode
 import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.domain.model.ActivityWindow
 import com.gtg.app.domain.repository.ActivityWindowRepository
@@ -54,6 +55,8 @@ data class SettingsUiState(
     val visualEnabled: Boolean = SessionPreferences.DEFAULT_VISUAL_ENABLED,
     /** Modalidade Vibração. */
     val vibrationEnabled: Boolean = SessionPreferences.DEFAULT_VIBRATION_ENABLED,
+    /** Modo de cadência do scheduler. */
+    val intervalMode: IntervalMode = SessionPreferences.DEFAULT_INTERVAL_MODE,
     /** Re-alerta automático após o zero (overshoot). */
     val overshootRepeatEnabled: Boolean = SessionPreferences.DEFAULT_OVERSHOOT_ENABLED,
     /** Intervalo (min) entre re-alertas. Faixa MIN..MAX_OVERSHOOT_MINUTES. */
@@ -157,6 +160,7 @@ class SettingsViewModel @Inject constructor(
                         soundEnabled = sessionPrefs.soundEnabled,
                         visualEnabled = sessionPrefs.visualEnabled,
                         vibrationEnabled = sessionPrefs.vibrationEnabled,
+                        intervalMode = sessionPrefs.intervalMode,
                         overshootRepeatEnabled = sessionPrefs.overshootRepeatEnabled,
                         overshootRepeatMinutes = sessionPrefs.overshootRepeatMinutes,
                         calendarEnabled = sessionPrefs.calendarIntegrationEnabled,
@@ -293,6 +297,12 @@ class SettingsViewModel @Inject constructor(
     ) {
         if (wouldLeaveAllOff) return
         commit(enabled)
+    }
+
+    // ── Modo de intervalo ────────────────────────────────────────
+
+    fun setIntervalMode(mode: IntervalMode) {
+        sessionPrefs.setIntervalMode(mode)
     }
 
     // ── Som do Alarme ────────────────────────────────────────────

@@ -1,5 +1,6 @@
 package com.gtg.app.domain.usecase
 
+import com.gtg.app.data.local.IntervalMode
 import com.gtg.app.domain.model.ActivityWindow
 import com.gtg.app.domain.model.InactivityBlock
 import com.gtg.app.domain.model.ScheduleResult
@@ -87,15 +88,21 @@ class DynamicSchedulerUseCase @Inject constructor(
         baseIntervalMinutes: Long,
         now: LocalDateTime = LocalDateTime.now(),
         activeDaysOfWeek: Set<DayOfWeek> = DayOfWeek.entries.toSet(),
+        intervalMode: IntervalMode = IntervalMode.DYNAMIC,
     ): ScheduleResult {
         // Pre-computa a data alvo para pré-buscar blocos da data correta.
         // Replica o mesmo cálculo do início de [evaluateWithDependencies] mas
         // sem precisar da window — usado só para escolher a data do fetch.
+        // Em STRICT, não há clamp de rest mínimo na pré-computação também.
         val initialCandidate = checkTime
             .plusMinutes(baseIntervalMinutes)
             .let { c ->
-                val earliest = now.plusMinutes(MINIMUM_REST_MINUTES)
-                if (c.isBefore(earliest)) earliest else c
+                if (intervalMode == IntervalMode.STRICT) {
+                    c
+                } else {
+                    val earliest = now.plusMinutes(MINIMUM_REST_MINUTES)
+                    if (c.isBefore(earliest)) earliest else c
+                }
             }
         val targetDate = initialCandidate.toLocalDate()
 
@@ -106,6 +113,7 @@ class DynamicSchedulerUseCase @Inject constructor(
             baseIntervalMinutes = baseIntervalMinutes,
             now = now,
             activeDaysOfWeek = activeDaysOfWeek,
+            intervalMode = intervalMode,
             deps = deps,
         )
     }
@@ -148,6 +156,7 @@ class DynamicSchedulerUseCase @Inject constructor(
         now: LocalDateTime,
         activeDaysOfWeek: Set<DayOfWeek>,
         deps: PrefetchedDependencies,
+        intervalMode: IntervalMode = IntervalMode.DYNAMIC,
     ): ScheduleResult {
         // ────────────────────────────────────────────────────────────────
         // REGRA 2 — Cálculo Base
@@ -161,9 +170,12 @@ class DynamicSchedulerUseCase @Inject constructor(
         // Se o usuário atrasou o Check (ex: fez Check 60min depois do alarme),
         // o candidato poderia cair no passado ou muito próximo de "agora".
         // Garantimos pelo menos MINIMUM_REST_MINUTES a partir de NOW.
+        //
+        // STRICT: pula. `next = lastCheck + N` exato — se cair no passado,
+        // AlarmManager dispara imediatamente. Trade-off escolhido pelo usuário.
         // ────────────────────────────────────────────────────────────────
         val earliestAllowed = now.plusMinutes(MINIMUM_REST_MINUTES)
-        if (candidate.isBefore(earliestAllowed)) {
+        if (intervalMode == IntervalMode.DYNAMIC && candidate.isBefore(earliestAllowed)) {
             candidate = earliestAllowed
         }
 
@@ -212,63 +224,71 @@ class DynamicSchedulerUseCase @Inject constructor(
         //
         // Blocos virtuais do Calendar já são NONE+specificDate, então
         // entram no mesmo pipeline da Regra 4 sem alteração da lógica.
+        //
+        // STRICT: pula a regra 4 inteira. Em STRICT o alarme pode tocar
+        // dentro de um bloco — é o trade-off de cadência exata.
         // ────────────────────────────────────────────────────────────────
-        val blocks = (deps.manualBlocks + deps.calendarBlocks)
-            .sortedBy { it.startTime } // ordenar por início para processamento sequencial
+        if (intervalMode == IntervalMode.DYNAMIC) {
+            val blocks = (deps.manualBlocks + deps.calendarBlocks)
+                .sortedBy { it.startTime } // ordenar por início para processamento sequencial
 
-        var collisionResolved: Boolean
-        var iterations = 0
+            var collisionResolved: Boolean
+            var iterations = 0
 
-        do {
-            collisionResolved = true
-            iterations++
+            do {
+                collisionResolved = true
+                iterations++
 
-            for (block in blocks) {
-                val blockStart = candidateDate.atTime(block.startTime)
-                val blockEnd = candidateDate.atTime(block.endTime)
+                for (block in blocks) {
+                    val blockStart = candidateDate.atTime(block.startTime)
+                    val blockEnd = candidateDate.atTime(block.endTime)
 
-                // Candidato está dentro deste bloco? [blockStart, blockEnd)
-                if (candidate >= blockStart && candidate < blockEnd) {
-                    // Quantos minutos se passaram desde o início do bloco
-                    val minutesPastStart = Duration.between(blockStart, candidate).toMinutes()
+                    // Candidato está dentro deste bloco? [blockStart, blockEnd)
+                    if (candidate >= blockStart && candidate < blockEnd) {
+                        // Quantos minutos se passaram desde o início do bloco
+                        val minutesPastStart = Duration.between(blockStart, candidate).toMinutes()
 
-                    if (minutesPastStart < INACTIVITY_PROXIMITY_MINUTES) {
-                        // ─── Caso A: Perto do INÍCIO do bloco ───
-                        // Antecipa para BUFFER minutos antes do início do bloco.
-                        val anticipatedTime = blockStart.minusMinutes(INACTIVITY_BUFFER_MINUTES)
+                        if (minutesPastStart < INACTIVITY_PROXIMITY_MINUTES) {
+                            // ─── Caso A: Perto do INÍCIO do bloco ───
+                            // Antecipa para BUFFER minutos antes do início do bloco.
+                            val anticipatedTime = blockStart.minusMinutes(INACTIVITY_BUFFER_MINUTES)
 
-                        // Só antecipa se o horário antecipado ainda respeitar o
-                        // descanso mínimo E estiver dentro da janela de atividade.
-                        if (!anticipatedTime.isBefore(earliestAllowed) &&
-                            !anticipatedTime.isBefore(windowStartToday)
-                        ) {
-                            candidate = anticipatedTime
+                            // Só antecipa se o horário antecipado ainda respeitar o
+                            // descanso mínimo E estiver dentro da janela de atividade.
+                            if (!anticipatedTime.isBefore(earliestAllowed) &&
+                                !anticipatedTime.isBefore(windowStartToday)
+                            ) {
+                                candidate = anticipatedTime
+                            } else {
+                                // Não é possível antecipar (violaria descanso mínimo ou
+                                // cairia antes da janela) → adia para depois do bloco.
+                                candidate = blockEnd.plusMinutes(INACTIVITY_BUFFER_MINUTES)
+                            }
                         } else {
-                            // Não é possível antecipar (violaria descanso mínimo ou
-                            // cairia antes da janela) → adia para depois do bloco.
+                            // ─── Caso B: Meio ou fim do bloco ───
+                            // Adia para BUFFER minutos depois do fim do bloco.
                             candidate = blockEnd.plusMinutes(INACTIVITY_BUFFER_MINUTES)
                         }
-                    } else {
-                        // ─── Caso B: Meio ou fim do bloco ───
-                        // Adia para BUFFER minutos depois do fim do bloco.
-                        candidate = blockEnd.plusMinutes(INACTIVITY_BUFFER_MINUTES)
+
+                        // Marcamos que houve ajuste → precisamos re-verificar todos os
+                        // blocos pois o novo horário pode colidir com outro bloco.
+                        collisionResolved = false
+                        break // reinicia o for para verificar com o novo candidate
                     }
-
-                    // Marcamos que houve ajuste → precisamos re-verificar todos os
-                    // blocos pois o novo horário pode colidir com outro bloco.
-                    collisionResolved = false
-                    break // reinicia o for para verificar com o novo candidate
                 }
-            }
-        } while (!collisionResolved && iterations < MAX_COLLISION_ITERATIONS)
+            } while (!collisionResolved && iterations < MAX_COLLISION_ITERATIONS)
 
-        // ────────────────────────────────────────────────────────────────
-        // REGRA 5 — Fim do Expediente (checagem final)
-        // Após resolver colisões, o candidato pode ter sido empurrado
-        // para além do fim da janela. Nesse caso, agenda para amanhã.
-        // ────────────────────────────────────────────────────────────────
-        if (!candidate.isBefore(windowEndToday)) {
-            return scheduleForNextActiveDay(candidateDate, window.startTime, activeDaysOfWeek)
+            // ────────────────────────────────────────────────────────────
+            // REGRA 5 — Fim do Expediente (checagem final pós-colisão)
+            // Após resolver colisões, o candidato pode ter sido empurrado
+            // para além do fim da janela. Nesse caso, agenda para amanhã.
+            //
+            // STRICT: pula. Sem rule 4 o candidato não se move, então a
+            // checagem inicial de windowEnd (acima) já cobriu.
+            // ────────────────────────────────────────────────────────────
+            if (!candidate.isBefore(windowEndToday)) {
+                return scheduleForNextActiveDay(candidateDate, window.startTime, activeDaysOfWeek)
+            }
         }
 
         // Se o candidato caiu em um dia diferente de "hoje" (ex: intervalo

@@ -1,5 +1,6 @@
 package com.gtg.app.domain.usecase
 
+import com.gtg.app.data.local.IntervalMode
 import com.gtg.app.domain.model.Exercise
 import com.gtg.app.domain.model.ScheduleResult
 import java.time.DayOfWeek
@@ -57,6 +58,7 @@ class PreviewTodayRoutineUseCase @Inject constructor(
         baseIntervalMinutes: Long,
         isFirstAlarmScheduled: Boolean,
         activeDaysOfWeek: Set<DayOfWeek> = DayOfWeek.entries.toSet(),
+        intervalMode: IntervalMode = IntervalMode.DYNAMIC,
         maxIterations: Int = 12,
     ): List<PlannedSet> {
         if (activeExercises.isEmpty()) return emptyList()
@@ -100,6 +102,7 @@ class PreviewTodayRoutineUseCase @Inject constructor(
                 now = previousAlarm,
                 activeDaysOfWeek = activeDaysOfWeek,
                 deps = deps,
+                intervalMode = intervalMode,
             )
 
             when (nextResult) {
