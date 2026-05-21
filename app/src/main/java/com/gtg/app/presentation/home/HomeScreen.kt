@@ -122,13 +122,19 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             // ── Dashboard no topo ───────────────────────────────
-            item(key = "daily_summary") {
-                DailySummaryCard(
-                    setsCompleted = state.todaySetsCompleted,
-                    totalReps = state.todayTotalReps,
-                    dailyTarget = state.dailySetTarget,
-                    breakdown = state.todayBreakdown,
-                )
+            // Card "Daily Summary" condicional ao toggle showDailyTarget
+            // (Settings → Mostrar meta diária). Default OFF desde 2026-05-20.
+            // Quando OFF, o item nem entra na LazyColumn — sem reserva de
+            // espaço, sem visual jump no scroll.
+            if (state.showDailyTarget) {
+                item(key = "daily_summary") {
+                    DailySummaryCard(
+                        setsCompleted = state.todaySetsCompleted,
+                        totalReps = state.todayTotalReps,
+                        dailyTarget = state.dailySetTarget,
+                        breakdown = state.todayBreakdown,
+                    )
+                }
             }
 
             // ── Conteúdo central: muda conforme estado ──────────

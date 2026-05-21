@@ -39,6 +39,8 @@ data class SettingsUiState(
     val windowDirty: Boolean = false,
     val baseIntervalMinutes: Long = SessionPreferences.DEFAULT_BASE_INTERVAL,
     val dailySetTarget: Int = SessionPreferences.DEFAULT_DAILY_SET_TARGET,
+    /** Toggle de exibição do card "Daily Summary" da Home e do campo de meta em Settings. */
+    val showDailyTarget: Boolean = SessionPreferences.DEFAULT_SHOW_DAILY_TARGET,
     val bypassDnd: Boolean = SessionPreferences.DEFAULT_BYPASS_DND,
     /** null → som padrão de alarme do sistema. */
     val alarmSoundUri: String? = null,
@@ -141,6 +143,7 @@ class SettingsViewModel @Inject constructor(
                     current.copy(
                         baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
                         dailySetTarget = sessionPrefs.dailySetTarget,
+                        showDailyTarget = sessionPrefs.showDailyTarget,
                         bypassDnd = sessionPrefs.bypassDnd,
                         alarmSoundUri = uri,
                         alarmSoundTitle = cachedTitle ?: current.alarmSoundTitle,
@@ -239,6 +242,10 @@ class SettingsViewModel @Inject constructor(
     fun setDailyTarget(target: Int) {
         val clamped = target.coerceIn(MIN_DAILY_TARGET, MAX_DAILY_TARGET)
         sessionPrefs.setDailySetTarget(clamped)
+    }
+
+    fun setShowDailyTarget(show: Boolean) {
+        sessionPrefs.setShowDailyTarget(show)
     }
 
     fun setBypassDnd(enabled: Boolean) {
