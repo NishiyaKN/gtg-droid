@@ -87,6 +87,23 @@
     <string name="settings_daily_target_title">Meta Diária de Séries</string>
     <string name="settings_daily_target_description">Quantas séries você quer fazer por dia.</string>
     <string name="settings_daily_target_show_label">Mostrar meta diária</string>
+
+    <!-- Onboarding (primeiro launch) -->
+    <string name="onboarding_welcome_title">Bem-vindo ao GtG</string>
+    <string name="onboarding_welcome_body">Grease the Groove é fazer séries curtas e submáximas ao longo do dia para construir força com baixa fadiga. O app te lembra nos horários certos — respeitando sua janela ativa e descansos. Vamos configurar o básico para começar.</string>
+    <string name="onboarding_window_title">Quando o app pode te alertar?</string>
+    <string name="onboarding_window_body">Escolha as horas do dia em que os alertas do GtG podem disparar. Você refina dias da semana e minutos depois em Agenda.</string>
+    <string name="onboarding_window_start_label">Hora inicial</string>
+    <string name="onboarding_window_end_label">Hora final</string>
+    <string name="onboarding_window_error_invalid">A hora final precisa ser maior que a inicial.</string>
+    <string name="onboarding_exercise_title">Seu primeiro exercício</string>
+    <string name="onboarding_exercise_body">Adicione um exercício para começar a rotação. Você pode adicionar ou editar exercícios depois em Exercícios.</string>
+    <string name="onboarding_exercise_name_label">Nome do exercício</string>
+    <string name="onboarding_exercise_max_reps_label">Reps máximas</string>
+    <string name="onboarding_button_continue">Continuar</string>
+    <string name="onboarding_button_finish">Concluir</string>
+    <string name="onboarding_button_skip">Pular</string>
+    <string name="onboarding_button_skip_all">Pular tudo</string>
     <string name="settings_daily_target_value">%d séries</string>
     <string name="settings_calendar_title">Google Calendar</string>
     <string name="settings_calendar_description">Bloqueia automaticamente o GtG durante eventos do calendário.</string>

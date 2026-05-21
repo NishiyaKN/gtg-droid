@@ -48,10 +48,12 @@ class SessionPreferences @Inject constructor(
         private const val KEY_CALENDAR_OVERRIDDEN_IDS = "calendar_overridden_event_ids"
         private const val KEY_ACTIVE_DAYS_OF_WEEK = "active_days_of_week"
         private const val KEY_LANGUAGE_TAG = "language_tag"
+        private const val KEY_HAS_SEEN_ONBOARDING = "has_seen_onboarding"
 
         const val DEFAULT_BASE_INTERVAL = 45L
         const val DEFAULT_DAILY_SET_TARGET = 10
         const val DEFAULT_SHOW_DAILY_TARGET = false
+        const val DEFAULT_HAS_SEEN_ONBOARDING = false
         const val DEFAULT_BYPASS_DND = true
         const val DEFAULT_OVERSHOOT_ENABLED = true
         const val DEFAULT_OVERSHOOT_MINUTES = 5
@@ -93,6 +95,14 @@ class SessionPreferences @Inject constructor(
      */
     val showDailyTarget: Boolean
         get() = prefs.getBoolean(KEY_SHOW_DAILY_TARGET, DEFAULT_SHOW_DAILY_TARGET)
+
+    /**
+     * Flag de primeiro launch. `true` após o usuário concluir ou pular o
+     * onboarding. Não é resetada por `clearSession()` — onboarding é
+     * uma única vez por install.
+     */
+    val hasSeenOnboarding: Boolean
+        get() = prefs.getBoolean(KEY_HAS_SEEN_ONBOARDING, DEFAULT_HAS_SEEN_ONBOARDING)
 
     /** true quando o alarme disparou e aguarda o Check do usuário. */
     val isAlarmPending: Boolean
@@ -204,6 +214,10 @@ class SessionPreferences @Inject constructor(
 
     fun setShowDailyTarget(show: Boolean) {
         prefs.edit().putBoolean(KEY_SHOW_DAILY_TARGET, show).apply()
+    }
+
+    fun setHasSeenOnboarding(seen: Boolean) {
+        prefs.edit().putBoolean(KEY_HAS_SEEN_ONBOARDING, seen).apply()
     }
 
     fun setBypassDnd(enabled: Boolean) {

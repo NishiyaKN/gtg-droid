@@ -87,6 +87,23 @@
     <string name="settings_daily_target_title">Daily Sets Target</string>
     <string name="settings_daily_target_description">How many sets you want per day.</string>
     <string name="settings_daily_target_show_label">Show daily target</string>
+
+    <!-- Onboarding (first launch) -->
+    <string name="onboarding_welcome_title">Welcome to GtG</string>
+    <string name="onboarding_welcome_body">Grease the Groove is about doing short, submaximal sets across the day to build strength with low fatigue. The app reminds you at the right times — respecting your active window and rest periods. Let\'s set up the basics so it can start working for you.</string>
+    <string name="onboarding_window_title">When can the app alert you?</string>
+    <string name="onboarding_window_body">Pick the hours of the day when GtG alerts can fire. You can refine the days of the week and minute precision later in Schedule.</string>
+    <string name="onboarding_window_start_label">Start hour</string>
+    <string name="onboarding_window_end_label">End hour</string>
+    <string name="onboarding_window_error_invalid">End hour must be later than start hour.</string>
+    <string name="onboarding_exercise_title">Your first exercise</string>
+    <string name="onboarding_exercise_body">Add one exercise to start rotating. You can add or edit exercises later in Exercises.</string>
+    <string name="onboarding_exercise_name_label">Exercise name</string>
+    <string name="onboarding_exercise_max_reps_label">Max reps</string>
+    <string name="onboarding_button_continue">Continue</string>
+    <string name="onboarding_button_finish">Done</string>
+    <string name="onboarding_button_skip">Skip</string>
+    <string name="onboarding_button_skip_all">Skip all</string>
     <string name="settings_daily_target_value">%d sets</string>
     <string name="settings_calendar_title">Google Calendar</string>
     <string name="settings_calendar_description">Automatically blocks GtG during calendar events.</string>
