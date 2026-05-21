@@ -48,6 +48,12 @@ data class SettingsUiState(
     val alarmSoundTitle: String = "Padrão do sistema",
     /** true se [alarmSoundUri] != null (usuário customizou). */
     val isCustomSound: Boolean = false,
+    /** Modalidade Som ativa. UI valida que pelo menos uma das três está ON. */
+    val soundEnabled: Boolean = SessionPreferences.DEFAULT_SOUND_ENABLED,
+    /** Modalidade Visual (pulse na AlarmActivity). */
+    val visualEnabled: Boolean = SessionPreferences.DEFAULT_VISUAL_ENABLED,
+    /** Modalidade Vibração. */
+    val vibrationEnabled: Boolean = SessionPreferences.DEFAULT_VIBRATION_ENABLED,
     /** Re-alerta automático após o zero (overshoot). */
     val overshootRepeatEnabled: Boolean = SessionPreferences.DEFAULT_OVERSHOOT_ENABLED,
     /** Intervalo (min) entre re-alertas. Faixa MIN..MAX_OVERSHOOT_MINUTES. */
@@ -148,6 +154,9 @@ class SettingsViewModel @Inject constructor(
                         alarmSoundUri = uri,
                         alarmSoundTitle = cachedTitle ?: current.alarmSoundTitle,
                         isCustomSound = uri != null,
+                        soundEnabled = sessionPrefs.soundEnabled,
+                        visualEnabled = sessionPrefs.visualEnabled,
+                        vibrationEnabled = sessionPrefs.vibrationEnabled,
                         overshootRepeatEnabled = sessionPrefs.overshootRepeatEnabled,
                         overshootRepeatMinutes = sessionPrefs.overshootRepeatMinutes,
                         calendarEnabled = sessionPrefs.calendarIntegrationEnabled,
@@ -250,6 +259,40 @@ class SettingsViewModel @Inject constructor(
 
     fun setBypassDnd(enabled: Boolean) {
         sessionPrefs.setBypassDnd(enabled)
+    }
+
+    // ── Modalidades de alerta ────────────────────────────────────
+    //
+    // Validação at-least-one-ON é UI-side (não storage-side). Storage aceita
+    // 3 OFFs, mas o ViewModel rejeita transição que deixaria todas em OFF.
+    // Quando rejeitado, NÃO escreve em SharedPreferences — o flow observe
+    // re-emite e o Switch volta visualmente para ON.
+
+    fun setSoundEnabled(enabled: Boolean) = setModality(
+        enabled = enabled,
+        wouldLeaveAllOff = !enabled && !state.value.visualEnabled && !state.value.vibrationEnabled,
+        commit = sessionPrefs::setSoundEnabled,
+    )
+
+    fun setVisualEnabled(enabled: Boolean) = setModality(
+        enabled = enabled,
+        wouldLeaveAllOff = !enabled && !state.value.soundEnabled && !state.value.vibrationEnabled,
+        commit = sessionPrefs::setVisualEnabled,
+    )
+
+    fun setVibrationEnabled(enabled: Boolean) = setModality(
+        enabled = enabled,
+        wouldLeaveAllOff = !enabled && !state.value.soundEnabled && !state.value.visualEnabled,
+        commit = sessionPrefs::setVibrationEnabled,
+    )
+
+    private inline fun setModality(
+        enabled: Boolean,
+        wouldLeaveAllOff: Boolean,
+        commit: (Boolean) -> Unit,
+    ) {
+        if (wouldLeaveAllOff) return
+        commit(enabled)
     }
 
     // ── Som do Alarme ────────────────────────────────────────────

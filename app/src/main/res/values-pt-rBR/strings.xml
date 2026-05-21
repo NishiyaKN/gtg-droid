@@ -88,6 +88,13 @@
     <string name="settings_daily_target_description">Quantas séries você quer fazer por dia.</string>
     <string name="settings_daily_target_show_label">Mostrar meta diária</string>
 
+    <!-- Modalidades de alerta -->
+    <string name="settings_modalities_title">Modalidades de alerta</string>
+    <string name="settings_modalities_description">Som, visual, vibração — combine como quiser. Pelo menos uma precisa ficar ativa.</string>
+    <string name="settings_modality_sound">Som</string>
+    <string name="settings_modality_visual">Visual (tela piscando)</string>
+    <string name="settings_modality_vibration">Vibração</string>
+
     <!-- Onboarding (primeiro launch) -->
     <string name="onboarding_welcome_title">Bem-vindo ao GtG</string>
     <string name="onboarding_welcome_body">Grease the Groove é fazer séries curtas e submáximas ao longo do dia para construir força com baixa fadiga. O app te lembra nos horários certos — respeitando sua janela ativa e descansos. Vamos configurar o básico para começar.</string>

@@ -88,6 +88,13 @@
     <string name="settings_daily_target_description">How many sets you want per day.</string>
     <string name="settings_daily_target_show_label">Show daily target</string>
 
+    <!-- Alert modalities -->
+    <string name="settings_modalities_title">Alert Modalities</string>
+    <string name="settings_modalities_description">Sound, visual, vibration — combine any. At least one must stay on.</string>
+    <string name="settings_modality_sound">Sound</string>
+    <string name="settings_modality_visual">Visual (screen pulse)</string>
+    <string name="settings_modality_vibration">Vibration</string>
+
     <!-- Onboarding (first launch) -->
     <string name="onboarding_welcome_title">Welcome to GtG</string>
     <string name="onboarding_welcome_body">Grease the Groove is about doing short, submaximal sets across the day to build strength with low fatigue. The app reminds you at the right times — respecting your active window and rest periods. Let\'s set up the basics so it can start working for you.</string>

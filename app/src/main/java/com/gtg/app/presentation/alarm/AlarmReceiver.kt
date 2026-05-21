@@ -153,15 +153,27 @@ class AlarmReceiver : BroadcastReceiver() {
                 }
             }
 
-            // Toca o som configurado pelo usuário (canal é silencioso de propósito —
-            // ver [GtgApplication.buildAlarmChannel]). USAGE_ALARM passa por DND,
-            // USAGE_NOTIFICATION_RINGTONE respeita DND.
-            val soundUri = sessionPrefs.alarmSoundUri?.let(Uri::parse)
-            AlarmSoundPlayer.play(
-                context = context,
-                soundUri = soundUri,
-                bypassDnd = sessionPrefs.bypassDnd,
-            )
+            // Modalidades de alerta — três flags independentes em SessionPreferences.
+            // Visual é responsabilidade da AlarmActivity (lê visualEnabled e aplica
+            // o pulse na UI); Receiver dispara apenas Som e Vibração. UI valida que
+            // pelo menos uma das três está ON (ver SettingsViewModel.setModality),
+            // então a combinação "tudo OFF" não deveria acontecer — mas se o
+            // storage chegar nesse estado, o Receiver é silencioso e a Activity
+            // ainda abre via Full-Screen Intent (notificação heads-up + ascende
+            // a tela), preservando o fallback mínimo de "algo aconteceu".
+
+            if (sessionPrefs.soundEnabled) {
+                val soundUri = sessionPrefs.alarmSoundUri?.let(Uri::parse)
+                AlarmSoundPlayer.play(
+                    context = context,
+                    soundUri = soundUri,
+                    bypassDnd = sessionPrefs.bypassDnd,
+                )
+            }
+
+            if (sessionPrefs.vibrationEnabled) {
+                VibrationPlayer.start(context)
+            }
         } finally {
             if (wakeLock.isHeld) {
                 wakeLock.release()

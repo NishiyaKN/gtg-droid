@@ -196,6 +196,17 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
+        AlertModalitiesSection(
+            soundEnabled = state.soundEnabled,
+            visualEnabled = state.visualEnabled,
+            vibrationEnabled = state.vibrationEnabled,
+            onToggleSound = viewModel::setSoundEnabled,
+            onToggleVisual = viewModel::setVisualEnabled,
+            onToggleVibration = viewModel::setVibrationEnabled,
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
         SoundSection(
             title = state.alarmSoundTitle,
             isCustom = state.isCustomSound,
@@ -1126,6 +1137,73 @@ private fun OvershootRepeatSection(
 }
 
 // ── Ignorar Não Perturbe ─────────────────────────────────────────
+
+// ── Modalidades de alerta ─────────────────────────────────────────
+
+@Composable
+private fun AlertModalitiesSection(
+    soundEnabled: Boolean,
+    visualEnabled: Boolean,
+    vibrationEnabled: Boolean,
+    onToggleSound: (Boolean) -> Unit,
+    onToggleVisual: (Boolean) -> Unit,
+    onToggleVibration: (Boolean) -> Unit,
+) {
+    SectionCard(
+        icon = Icons.Default.NotificationsActive,
+        title = stringResource(R.string.settings_modalities_title),
+        description = stringResource(R.string.settings_modalities_description),
+    ) {
+        ModalityRow(
+            label = stringResource(R.string.settings_modality_sound),
+            enabled = soundEnabled,
+            onChange = onToggleSound,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        ModalityRow(
+            label = stringResource(R.string.settings_modality_visual),
+            enabled = visualEnabled,
+            onChange = onToggleVisual,
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        ModalityRow(
+            label = stringResource(R.string.settings_modality_vibration),
+            enabled = vibrationEnabled,
+            onChange = onToggleVibration,
+        )
+    }
+}
+
+@Composable
+private fun ModalityRow(
+    label: String,
+    enabled: Boolean,
+    onChange: (Boolean) -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            text = label,
+            color = if (enabled) Color.White else Color.White.copy(alpha = 0.7f),
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        Switch(
+            checked = enabled,
+            onCheckedChange = onChange,
+            colors = SwitchDefaults.colors(
+                checkedThumbColor = Color.White,
+                checkedTrackColor = GtgPrimary,
+                uncheckedThumbColor = Color.White.copy(alpha = 0.7f),
+                uncheckedTrackColor = GtgSurfaceVariant,
+                uncheckedBorderColor = GtgSurfaceVariant,
+            ),
+        )
+    }
+}
 
 @Composable
 private fun BypassDndSection(

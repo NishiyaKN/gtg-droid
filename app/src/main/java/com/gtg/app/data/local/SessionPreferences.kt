@@ -49,11 +49,17 @@ class SessionPreferences @Inject constructor(
         private const val KEY_ACTIVE_DAYS_OF_WEEK = "active_days_of_week"
         private const val KEY_LANGUAGE_TAG = "language_tag"
         private const val KEY_HAS_SEEN_ONBOARDING = "has_seen_onboarding"
+        private const val KEY_SOUND_ENABLED = "alert_sound_enabled"
+        private const val KEY_VISUAL_ENABLED = "alert_visual_enabled"
+        private const val KEY_VIBRATION_ENABLED = "alert_vibration_enabled"
 
         const val DEFAULT_BASE_INTERVAL = 45L
         const val DEFAULT_DAILY_SET_TARGET = 10
         const val DEFAULT_SHOW_DAILY_TARGET = false
         const val DEFAULT_HAS_SEEN_ONBOARDING = false
+        const val DEFAULT_SOUND_ENABLED = true
+        const val DEFAULT_VISUAL_ENABLED = false
+        const val DEFAULT_VIBRATION_ENABLED = false
         const val DEFAULT_BYPASS_DND = true
         const val DEFAULT_OVERSHOOT_ENABLED = true
         const val DEFAULT_OVERSHOOT_MINUTES = 5
@@ -103,6 +109,22 @@ class SessionPreferences @Inject constructor(
      */
     val hasSeenOnboarding: Boolean
         get() = prefs.getBoolean(KEY_HAS_SEEN_ONBOARDING, DEFAULT_HAS_SEEN_ONBOARDING)
+
+    // ── Modalidades de alerta ────────────────────────────────────
+    //
+    // Três flags independentes. Defaults preservam comportamento anterior
+    // ao lote: Som ON, Visual OFF, Vibração OFF. UI valida que pelo menos
+    // uma esteja ON (ver SettingsViewModel.toggleModality); o storage
+    // aceitaria 3 OFFs, é decisão de UX bloquear.
+
+    val soundEnabled: Boolean
+        get() = prefs.getBoolean(KEY_SOUND_ENABLED, DEFAULT_SOUND_ENABLED)
+
+    val visualEnabled: Boolean
+        get() = prefs.getBoolean(KEY_VISUAL_ENABLED, DEFAULT_VISUAL_ENABLED)
+
+    val vibrationEnabled: Boolean
+        get() = prefs.getBoolean(KEY_VIBRATION_ENABLED, DEFAULT_VIBRATION_ENABLED)
 
     /** true quando o alarme disparou e aguarda o Check do usuário. */
     val isAlarmPending: Boolean
@@ -218,6 +240,18 @@ class SessionPreferences @Inject constructor(
 
     fun setHasSeenOnboarding(seen: Boolean) {
         prefs.edit().putBoolean(KEY_HAS_SEEN_ONBOARDING, seen).apply()
+    }
+
+    fun setSoundEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_SOUND_ENABLED, enabled).apply()
+    }
+
+    fun setVisualEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_VISUAL_ENABLED, enabled).apply()
+    }
+
+    fun setVibrationEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_VIBRATION_ENABLED, enabled).apply()
     }
 
     fun setBypassDnd(enabled: Boolean) {
