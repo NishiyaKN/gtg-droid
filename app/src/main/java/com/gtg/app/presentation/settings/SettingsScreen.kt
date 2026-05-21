@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -151,6 +152,8 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
 
         DailyTargetSection(
             target = state.dailySetTarget,
+            showToggle = state.showDailyTarget,
+            onToggleChange = viewModel::setShowDailyTarget,
             onChange = viewModel::setDailyTarget,
         )
 
@@ -434,6 +437,8 @@ private fun BaseIntervalSection(
 @Composable
 private fun DailyTargetSection(
     target: Int,
+    showToggle: Boolean,
+    onToggleChange: (Boolean) -> Unit,
     onChange: (Int) -> Unit,
 ) {
     var draft by remember(target) { mutableFloatStateOf(target.toFloat()) }
@@ -443,38 +448,67 @@ private fun DailyTargetSection(
         title = stringResource(R.string.settings_daily_target_title),
         description = stringResource(R.string.settings_daily_target_description),
     ) {
+        // Toggle "Mostrar meta diária". Default OFF — meta é opcional desde o
+        // lote 2026-05-20. Quando OFF, esconde valor + slider via
+        // AnimatedVisibility (sem visual jump no scroll denso).
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(
-                text = stringResource(R.string.settings_current_label),
-                color = Color.White.copy(alpha = 0.6f),
-                fontSize = 13.sp,
+                text = stringResource(R.string.settings_daily_target_show_label),
+                color = Color.White,
+                fontSize = 14.sp,
             )
-            Text(
-                text = stringResource(R.string.settings_daily_target_value, draft.roundToInt()),
-                color = GtgPrimary,
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Bold,
+            Switch(
+                checked = showToggle,
+                onCheckedChange = onToggleChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = GtgPrimary,
+                    checkedTrackColor = GtgPrimary.copy(alpha = 0.4f),
+                ),
             )
         }
 
-        Slider(
-            value = draft,
-            onValueChange = { draft = it },
-            onValueChangeFinished = { onChange(draft.roundToInt()) },
-            valueRange = SettingsViewModel.MIN_DAILY_TARGET.toFloat()..
-                SettingsViewModel.MAX_DAILY_TARGET.toFloat(),
-            steps = SettingsViewModel.MAX_DAILY_TARGET -
-                SettingsViewModel.MIN_DAILY_TARGET - 1,
-            colors = SliderDefaults.colors(
-                thumbColor = GtgPrimary,
-                activeTrackColor = GtgPrimary,
-                inactiveTrackColor = GtgSurfaceVariant,
-            ),
-        )
+        AnimatedVisibility(visible = showToggle) {
+            Column {
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = stringResource(R.string.settings_current_label),
+                        color = Color.White.copy(alpha = 0.6f),
+                        fontSize = 13.sp,
+                    )
+                    Text(
+                        text = stringResource(R.string.settings_daily_target_value, draft.roundToInt()),
+                        color = GtgPrimary,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                Slider(
+                    value = draft,
+                    onValueChange = { draft = it },
+                    onValueChangeFinished = { onChange(draft.roundToInt()) },
+                    valueRange = SettingsViewModel.MIN_DAILY_TARGET.toFloat()..
+                        SettingsViewModel.MAX_DAILY_TARGET.toFloat(),
+                    steps = SettingsViewModel.MAX_DAILY_TARGET -
+                        SettingsViewModel.MIN_DAILY_TARGET - 1,
+                    colors = SliderDefaults.colors(
+                        thumbColor = GtgPrimary,
+                        activeTrackColor = GtgPrimary,
+                        inactiveTrackColor = GtgSurfaceVariant,
+                    ),
+                )
+            }
+        }
     }
 }
 

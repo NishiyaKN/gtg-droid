@@ -35,6 +35,7 @@ class SessionPreferences @Inject constructor(
         private const val KEY_PENDING_TARGET_REPS = "pending_target_reps"
         private const val KEY_BASE_INTERVAL_MINUTES = "base_interval_minutes"
         private const val KEY_DAILY_SET_TARGET = "daily_set_target"
+        private const val KEY_SHOW_DAILY_TARGET = "show_daily_target"
         private const val KEY_IS_ALARM_PENDING = "is_alarm_pending"
         private const val KEY_BYPASS_DND = "bypass_dnd"
         private const val KEY_ALARM_SOUND_URI = "alarm_sound_uri"
@@ -50,6 +51,7 @@ class SessionPreferences @Inject constructor(
 
         const val DEFAULT_BASE_INTERVAL = 45L
         const val DEFAULT_DAILY_SET_TARGET = 10
+        const val DEFAULT_SHOW_DAILY_TARGET = false
         const val DEFAULT_BYPASS_DND = true
         const val DEFAULT_OVERSHOOT_ENABLED = true
         const val DEFAULT_OVERSHOOT_MINUTES = 5
@@ -82,6 +84,15 @@ class SessionPreferences @Inject constructor(
 
     val dailySetTarget: Int
         get() = prefs.getInt(KEY_DAILY_SET_TARGET, DEFAULT_DAILY_SET_TARGET)
+
+    /**
+     * Controla se o card "Daily Summary" aparece na Home e se o campo de
+     * `dailySetTarget` é exposto em Settings. Default `false` — meta diária
+     * é opcional desde o lote 2026-05-20. O valor de [dailySetTarget]
+     * permanece persistido independente deste toggle.
+     */
+    val showDailyTarget: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_DAILY_TARGET, DEFAULT_SHOW_DAILY_TARGET)
 
     /** true quando o alarme disparou e aguarda o Check do usuário. */
     val isAlarmPending: Boolean
@@ -189,6 +200,10 @@ class SessionPreferences @Inject constructor(
 
     fun setDailySetTarget(target: Int) {
         prefs.edit().putInt(KEY_DAILY_SET_TARGET, target).apply()
+    }
+
+    fun setShowDailyTarget(show: Boolean) {
+        prefs.edit().putBoolean(KEY_SHOW_DAILY_TARGET, show).apply()
     }
 
     fun setBypassDnd(enabled: Boolean) {

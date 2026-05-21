@@ -86,6 +86,7 @@
     <string name="settings_min_value">%d min</string>
     <string name="settings_daily_target_title">Daily Sets Target</string>
     <string name="settings_daily_target_description">How many sets you want per day.</string>
+    <string name="settings_daily_target_show_label">Show daily target</string>
     <string name="settings_daily_target_value">%d sets</string>
     <string name="settings_calendar_title">Google Calendar</string>
     <string name="settings_calendar_description">Automatically blocks GtG during calendar events.</string>
