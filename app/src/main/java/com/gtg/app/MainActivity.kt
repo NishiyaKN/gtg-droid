@@ -58,6 +58,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
 import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.presentation.navigation.GtgNavHost
+import com.gtg.app.presentation.onboarding.OnboardingHost
 import com.gtg.app.presentation.theme.GtgPrimary
 import com.gtg.app.presentation.theme.GtgSurface
 import com.gtg.app.presentation.theme.GtgSurfaceVariant
@@ -71,7 +72,8 @@ import javax.inject.Inject
  * Camadas (de fora para dentro):
  * 1. [LanguageGate] — força a escolha de idioma na primeira execução.
  * 2. [PermissionGate] — solicita as 3 permissões críticas.
- * 3. [GtgNavHost] — conteúdo principal (Home, Exercises, Schedule, Stats, Settings).
+ * 3. [OnboardingGate] — onboarding de 3 steps no primeiro launch (post-permissions).
+ * 4. [GtgNavHost] — conteúdo principal (Home, Exercises, Schedule, Stats, Settings).
  */
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -86,7 +88,9 @@ class MainActivity : ComponentActivity() {
             GtgTheme {
                 LanguageGate(sessionPrefs) {
                     PermissionGate {
-                        GtgNavHost()
+                        OnboardingGate(sessionPrefs) {
+                            GtgNavHost()
+                        }
                     }
                 }
             }
@@ -112,6 +116,31 @@ private fun LanguageGate(
             // local `tag` é restaurado do prefs no novo lifecycle.
             AppCompatDelegate.setApplicationLocales(LocaleListCompat.forLanguageTags(picked))
         }
+    } else {
+        content()
+    }
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Onboarding Gate (primeiro launch após permissões)
+// ──────────────────────────────────────────────────────────────────
+
+@Composable
+private fun OnboardingGate(
+    sessionPrefs: SessionPreferences,
+    content: @Composable () -> Unit,
+) {
+    // Mesma forma do LanguageGate — state local + recomposição manual quando
+    // o flag é flipado. Nenhum outro componente muda `hasSeenOnboarding`
+    // durante o lifecycle da MainActivity, então Flow seria over-engineering.
+    var seen by remember { mutableStateOf(sessionPrefs.hasSeenOnboarding) }
+    if (!seen) {
+        OnboardingHost(
+            onFinish = {
+                sessionPrefs.setHasSeenOnboarding(true)
+                seen = true
+            },
+        )
     } else {
         content()
     }
