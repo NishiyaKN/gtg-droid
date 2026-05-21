@@ -46,6 +46,9 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.SegmentedButtonDefaults
+import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Switch
@@ -78,6 +81,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gtg.app.R
 import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.domain.repository.CalendarInfo
+import com.gtg.app.data.local.IntervalMode
 import com.gtg.app.presentation.alarm.AlarmSoundPlayer
 import com.gtg.app.presentation.common.AdaptiveText
 import com.gtg.app.presentation.common.WheelTimePicker
@@ -146,6 +150,13 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
         BaseIntervalSection(
             minutes = state.baseIntervalMinutes,
             onChange = viewModel::setBaseInterval,
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        IntervalModeSection(
+            mode = state.intervalMode,
+            onChange = viewModel::setIntervalMode,
         )
 
         Spacer(modifier = Modifier.height(16.dp))
@@ -1137,6 +1148,60 @@ private fun OvershootRepeatSection(
 }
 
 // ── Ignorar Não Perturbe ─────────────────────────────────────────
+
+// ── Modo de intervalo ─────────────────────────────────────────────
+
+@Composable
+private fun IntervalModeSection(
+    mode: IntervalMode,
+    onChange: (IntervalMode) -> Unit,
+) {
+    SectionCard(
+        icon = Icons.Default.Schedule,
+        title = stringResource(R.string.settings_interval_mode_title),
+        description = stringResource(R.string.settings_interval_mode_description),
+    ) {
+        SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
+            SegmentedButton(
+                selected = mode == IntervalMode.DYNAMIC,
+                onClick = { onChange(IntervalMode.DYNAMIC) },
+                shape = SegmentedButtonDefaults.itemShape(index = 0, count = 2),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = GtgPrimary,
+                    activeContentColor = Color.White,
+                    inactiveContainerColor = GtgSurfaceVariant,
+                    inactiveContentColor = Color.White.copy(alpha = 0.7f),
+                ),
+            ) {
+                Text(stringResource(R.string.settings_interval_mode_dynamic))
+            }
+            SegmentedButton(
+                selected = mode == IntervalMode.STRICT,
+                onClick = { onChange(IntervalMode.STRICT) },
+                shape = SegmentedButtonDefaults.itemShape(index = 1, count = 2),
+                colors = SegmentedButtonDefaults.colors(
+                    activeContainerColor = GtgPrimary,
+                    activeContentColor = Color.White,
+                    inactiveContainerColor = GtgSurfaceVariant,
+                    inactiveContentColor = Color.White.copy(alpha = 0.7f),
+                ),
+            ) {
+                Text(stringResource(R.string.settings_interval_mode_strict))
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Text(
+            text = stringResource(
+                if (mode == IntervalMode.STRICT) R.string.settings_interval_mode_strict_helper
+                else R.string.settings_interval_mode_dynamic_helper,
+            ),
+            color = Color.White.copy(alpha = 0.55f),
+            fontSize = 12.sp,
+        )
+    }
+}
 
 // ── Modalidades de alerta ─────────────────────────────────────────
 

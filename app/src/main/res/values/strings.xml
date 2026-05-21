@@ -88,6 +88,14 @@
     <string name="settings_daily_target_description">How many sets you want per day.</string>
     <string name="settings_daily_target_show_label">Show daily target</string>
 
+    <!-- Interval mode -->
+    <string name="settings_interval_mode_title">Interval mode</string>
+    <string name="settings_interval_mode_description">How alarms space out across the day.</string>
+    <string name="settings_interval_mode_dynamic">Dynamic</string>
+    <string name="settings_interval_mode_strict">Strict</string>
+    <string name="settings_interval_mode_dynamic_helper">Default. Honors minimum rest (20m) and skirts inactivity blocks.</string>
+    <string name="settings_interval_mode_strict_helper">Strictly lastCheck + interval. Skips rest minimum and inactivity detours — alarm may fire inside a block.</string>
+
     <!-- Alert modalities -->
     <string name="settings_modalities_title">Alert Modalities</string>
     <string name="settings_modalities_description">Sound, visual, vibration — combine any. At least one must stay on.</string>

@@ -88,6 +88,14 @@
     <string name="settings_daily_target_description">Quantas séries você quer fazer por dia.</string>
     <string name="settings_daily_target_show_label">Mostrar meta diária</string>
 
+    <!-- Modo de intervalo -->
+    <string name="settings_interval_mode_title">Modo de intervalo</string>
+    <string name="settings_interval_mode_description">Como os alarmes são distribuídos ao longo do dia.</string>
+    <string name="settings_interval_mode_dynamic">Dinâmico</string>
+    <string name="settings_interval_mode_strict">Fixo</string>
+    <string name="settings_interval_mode_dynamic_helper">Padrão. Respeita descanso mínimo (20m) e desvia de blocos de inatividade.</string>
+    <string name="settings_interval_mode_strict_helper">Estritamente lastCheck + intervalo. Pula descanso mínimo e desvio de inatividade — alarme pode tocar dentro de um bloco.</string>
+
     <!-- Modalidades de alerta -->
     <string name="settings_modalities_title">Modalidades de alerta</string>
     <string name="settings_modalities_description">Som, visual, vibração — combine como quiser. Pelo menos uma precisa ficar ativa.</string>

@@ -86,6 +86,7 @@ class AlarmViewModel @Inject constructor(
             dismissActiveAlarmSideEffects()
 
             val now = LocalDateTime.now()
+            val nowMillis = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
             // 1. Registrar ExerciseLog — guard contra exerciseId inválido
             // (intent corrompido / extras faltando). Sem isso, inseriríamos
@@ -100,7 +101,14 @@ class AlarmViewModel @Inject constructor(
                 )
             }
 
-            // 2. Reagendar (rotação avança mesmo se log foi pulado)
+            // 2. Atualizar âncora de cadência (U16a do lote 2026-05-20).
+            // Check via full-screen É Check real do usuário — move o anchor
+            // junto com HomeViewModel.startSession/performManualCheck. Sem
+            // isso, modo STRICT em rescheduleFromAnchor mid-session usaria
+            // o lastCheck antigo após Check pela AlarmActivity.
+            sessionPrefs.setLastCheck(nowMillis)
+
+            // 3. Reagendar (rotação avança mesmo se log foi pulado)
             scheduleNext(checkTime = now)
 
             _actionCompleted.value = true
@@ -229,6 +237,7 @@ class AlarmViewModel @Inject constructor(
                 checkTime = checkTime,
                 baseIntervalMinutes = interval,
                 activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
+                intervalMode = sessionPrefs.intervalMode,
             )
         ) {
             is ScheduleResult.Scheduled -> {
