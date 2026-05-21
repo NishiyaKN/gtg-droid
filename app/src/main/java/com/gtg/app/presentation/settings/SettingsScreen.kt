@@ -151,9 +151,9 @@ fun SettingsScreen(viewModel: SettingsViewModel = hiltViewModel()) {
         Spacer(modifier = Modifier.height(16.dp))
 
         DailyTargetSection(
+            enabled = state.showDailyTarget,
+            onToggle = viewModel::setShowDailyTarget,
             target = state.dailySetTarget,
-            showToggle = state.showDailyTarget,
-            onToggleChange = viewModel::setShowDailyTarget,
             onChange = viewModel::setDailyTarget,
         )
 
@@ -436,21 +436,18 @@ private fun BaseIntervalSection(
 
 @Composable
 private fun DailyTargetSection(
+    enabled: Boolean,
+    onToggle: (Boolean) -> Unit,
     target: Int,
-    showToggle: Boolean,
-    onToggleChange: (Boolean) -> Unit,
     onChange: (Int) -> Unit,
 ) {
-    var draft by remember(target) { mutableFloatStateOf(target.toFloat()) }
-
     SectionCard(
         icon = Icons.Default.Repeat,
         title = stringResource(R.string.settings_daily_target_title),
         description = stringResource(R.string.settings_daily_target_description),
     ) {
-        // Toggle "Mostrar meta diária". Default OFF — meta é opcional desde o
-        // lote 2026-05-20. Quando OFF, esconde valor + slider via
-        // AnimatedVisibility (sem visual jump no scroll denso).
+        // Quando OFF, esconde valor + slider via AnimatedVisibility (sem visual
+        // jump no scroll denso de Settings).
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -462,8 +459,8 @@ private fun DailyTargetSection(
                 fontSize = 14.sp,
             )
             Switch(
-                checked = showToggle,
-                onCheckedChange = onToggleChange,
+                checked = enabled,
+                onCheckedChange = onToggle,
                 colors = SwitchDefaults.colors(
                     checkedThumbColor = GtgPrimary,
                     checkedTrackColor = GtgPrimary.copy(alpha = 0.4f),
@@ -471,7 +468,12 @@ private fun DailyTargetSection(
             )
         }
 
-        AnimatedVisibility(visible = showToggle) {
+        AnimatedVisibility(visible = enabled) {
+            // `draft` mora DENTRO do AnimatedVisibility: ao reabrir após toggle
+            // OFF→ON, `remember(target)` re-inicializa com o `target` atual
+            // (sem stale value de drag interrompido).
+            var draft by remember(target) { mutableFloatStateOf(target.toFloat()) }
+
             Column {
                 Spacer(modifier = Modifier.height(8.dp))
 

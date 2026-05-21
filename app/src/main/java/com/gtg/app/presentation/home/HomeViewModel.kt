@@ -85,7 +85,7 @@ data class HomeUiState(
     val todayTotalReps: Int = 0,
     /** Meta de sets diários configurada. */
     val dailySetTarget: Int = SessionPreferences.DEFAULT_DAILY_SET_TARGET,
-    /** Controla se o card "Daily Summary" renderiza na Home. Lote 2026-05-20. */
+    /** Controla se o card "Daily Summary" renderiza na Home. */
     val showDailyTarget: Boolean = SessionPreferences.DEFAULT_SHOW_DAILY_TARGET,
     /** true se não há ActivityWindow configurada. */
     val noWindowConfigured: Boolean = false,

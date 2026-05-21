@@ -88,8 +88,8 @@ class SessionPreferences @Inject constructor(
     /**
      * Controla se o card "Daily Summary" aparece na Home e se o campo de
      * `dailySetTarget` é exposto em Settings. Default `false` — meta diária
-     * é opcional desde o lote 2026-05-20. O valor de [dailySetTarget]
-     * permanece persistido independente deste toggle.
+     * é opcional. O valor de [dailySetTarget] permanece persistido
+     * independente deste toggle (toggle ON religa com último valor).
      */
     val showDailyTarget: Boolean
         get() = prefs.getBoolean(KEY_SHOW_DAILY_TARGET, DEFAULT_SHOW_DAILY_TARGET)

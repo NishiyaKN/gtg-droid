@@ -122,8 +122,7 @@ fun HomeScreen(
             verticalArrangement = Arrangement.spacedBy(24.dp),
         ) {
             // ── Dashboard no topo ───────────────────────────────
-            // Card "Daily Summary" condicional ao toggle showDailyTarget
-            // (Settings → Mostrar meta diária). Default OFF desde 2026-05-20.
+            // Card condicional ao toggle "Mostrar meta diária" em Settings.
             // Quando OFF, o item nem entra na LazyColumn — sem reserva de
             // espaço, sem visual jump no scroll.
             if (state.showDailyTarget) {
