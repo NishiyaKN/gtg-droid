@@ -187,8 +187,10 @@ class AlarmReceiver : BroadcastReceiver() {
 
         val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_fitness)
-            .setContentTitle("Hora do GtG!")
-            .setContentText("$exerciseName — $targetReps reps")
+            .setContentTitle(context.getString(R.string.alarm_notification_title))
+            .setContentText(
+                context.getString(R.string.alarm_notification_text, exerciseName, targetReps),
+            )
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
