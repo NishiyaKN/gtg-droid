@@ -17,6 +17,7 @@ import com.gtg.app.R
 import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.domain.repository.ActivityWindowRepository
 import com.gtg.app.domain.scheduler.AlarmScheduler
+import com.gtg.app.domain.usecase.isInsideActiveWindow
 import com.gtg.app.domain.usecase.rescheduleForNextDay
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
@@ -210,11 +211,12 @@ class AlarmReceiver : BroadcastReceiver() {
         // janela.
         if (sessionPrefs.overshootRepeatEnabled && sessionPrefs.isSessionActive) {
             val nextOvershoot = now.plusMinutes(sessionPrefs.overshootRepeatMinutes.toLong())
-            val withinDayActive = nextOvershoot.dayOfWeek in sessionPrefs.activeDaysOfWeek
-            val withinWindow = window == null ||
-                (nextOvershoot.toLocalDate() == now.toLocalDate() &&
-                    !nextOvershoot.isAfter(now.toLocalDate().atTime(window.endTime)))
-            if (withinDayActive && withinWindow) {
+            // Cross-midnight guard: o overshoot deve cair no mesmo dia ativo
+            // e dentro da janela do dia atual (isInsideActiveWindow cobre
+            // dia + janela, mas precisamos do same-day extra para evitar
+            // agendar em dia subsequente sem rollover explícito).
+            val sameDay = nextOvershoot.toLocalDate() == now.toLocalDate()
+            if (sameDay && isInsideActiveWindow(nextOvershoot, window, sessionPrefs.activeDaysOfWeek)) {
                 alarmScheduler.scheduleOvershoot(
                     triggerAt = nextOvershoot,
                     exerciseId = exerciseId,

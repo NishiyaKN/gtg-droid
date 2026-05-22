@@ -190,27 +190,16 @@ class SessionPreferences @Inject constructor(
     /**
      * Epoch millis do primeiro disparo da cadeia de alerta atual (anchor-class).
      *
-     * "Cadeia" = sequência primary → overshoot → snooze → primary remarcado → ... até
-     * Check/Stop/rollover. Set apenas no primeiro disparo da cadeia em
-     * [com.gtg.app.presentation.alarm.AlarmReceiver] quando o valor atual é `0L`.
-     *
-     * **Anchor-class discipline:** secondary writers (snooze, overshoot, mudança
-     * mid-sessão de baseInterval/activeDays via `rescheduleFromAnchor`) **não**
-     * sobrescrevem — preservam o T0 original para que a Home exiba o tempo
-     * acumulado desde o primeiro alarme.
-     *
-     * **Reset paths (zera para 0L):**
-     * - `HomeViewModel.performManualCheck` e `AlarmViewModel.performCheck` (Check
-     *   feito, cadeia encerrou com sucesso).
-     * - `HomeViewModel.stopSession` (sessão encerrada).
-     * - `rescheduleForNextDay` em `RotationHelpers` (rollover de fim de janela —
-     *   nova cadeia amanhã). Invocado por `HomeViewModel` no countdown e por
-     *   `AlarmReceiver` no caminho out-of-window.
-     * - [clearSession] (sessão limpa).
-     * - [com.gtg.app.presentation.alarm.BootReceiver] **somente em
-     *   `ACTION_BOOT_COMPLETED`** (defensivo: device reboot encerra a cadeia
-     *   mental). `ACTION_MY_PACKAGE_REPLACED` preserva — update silencioso do
-     *   Play Store não invalida cadeia ativa.
+     * "Cadeia" = sequência primary → overshoot → snooze → primary remarcado → ...
+     * até Check/Stop/rollover. Escrito apenas no primeiro disparo (`AlarmReceiver`
+     * quando valor atual é `0L`); secondary writers (snooze, overshoot, mudança
+     * mid-sessão de baseInterval/activeDays) **não** sobrescrevem, preservando
+     * o T0 original. Resetado para `0L` por qualquer ação que encerre a cadeia:
+     * Check (`HomeViewModel.performManualCheck` / `AlarmViewModel.performCheck`),
+     * Stop (`HomeViewModel.stopSession`), rollover de janela (`rescheduleForNextDay`
+     * no `RotationHelpers`), [clearSession], e — defensivamente — `BootReceiver`
+     * em `ACTION_BOOT_COMPLETED` (preserva em `MY_PACKAGE_REPLACED`, que é
+     * update silencioso do Play Store onde a cadeia mental continua viva).
      *
      * `0L` = sem cadeia ativa (default seguro para installs antigos sem o key).
      */

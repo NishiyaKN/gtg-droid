@@ -356,10 +356,8 @@ private fun AlarmScreen(
                 )
             }
 
-            // Bottom breathing room — equivalente ao Spacer 16dp que ficava
-            // entre Snooze e o antigo botão "Pular". Sem isso, em layouts
-            // verticalScroll Snooze ficava colado ao bottom inset ou ao
-            // botão Stop legacy.
+            // Bottom breathing room — sem isso o Snooze fica colado ao
+            // bottom inset em verticalScroll com nav bar de gesture.
             Spacer(modifier = Modifier.height(16.dp))
         }
     }

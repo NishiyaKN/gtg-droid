@@ -1,6 +1,9 @@
 package com.gtg.app.presentation.home
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -181,14 +184,10 @@ fun HomeScreen(
                 screenState != ScreenState.NO_EXERCISE
             ) {
                 item(key = "routine_preview") {
-                    androidx.compose.animation.AnimatedVisibility(
+                    AnimatedVisibility(
                         visible = state.chainStartedAtMillis == null,
-                        enter = androidx.compose.animation.fadeIn(
-                            animationSpec = tween(120),
-                        ),
-                        exit = androidx.compose.animation.fadeOut(
-                            animationSpec = tween(120),
-                        ),
+                        enter = fadeIn(animationSpec = tween(120)),
+                        exit = fadeOut(animationSpec = tween(120)),
                     ) {
                         RoutinePreviewCard(
                             preview = state.routinePreview,
@@ -651,7 +650,6 @@ private fun CountdownContent(
     val inChain = chainStartedAtMillis != null
     val urgentChain = inChain && isAlarmRinging
     val pulseActive = urgentChain || (!inChain && isOverdue)
-    val redCard = urgentChain || (!inChain && isOverdue)
 
     val infiniteTransition = rememberInfiniteTransition(label = "overdue_pulse")
     val pulseScale by infiniteTransition.animateFloat(
@@ -664,7 +662,7 @@ private fun CountdownContent(
         label = "overdue_pulse_scale",
     )
 
-    val accentColor = if (redCard || inChain) GtgPrimary else Color.White
+    val accentColor = if (pulseActive || inChain) GtgPrimary else Color.White
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -713,7 +711,7 @@ private fun CountdownContent(
                 .fillMaxWidth()
                 .scale(pulseScale),
             colors = CardDefaults.cardColors(
-                containerColor = if (redCard) {
+                containerColor = if (pulseActive) {
                     GtgPrimary.copy(alpha = 0.12f)
                 } else {
                     GtgSurface
@@ -872,23 +870,12 @@ private fun CountdownContent(
 /**
  * Formata segundos decorridos da cadeia em "+MM:SS" ou "+HH:MM:SS" se > 1 hora.
  *
- * Sempre positivo — caller (`HomeViewModel.restartCountdown`) já aplica
- * `coerceAtLeast(0L)` para clamp contra clock skew / NTP. Mesmo assim,
- * `abs()` defensivo aqui evita renderizar "+-" em qualquer caminho que
- * passe um negativo.
+ * Sempre positivo — `coerceAtLeast(0L)` defende contra clock skew / NTP
+ * adjustment se algum caller passar negativo. Delega a [formatCountdown]
+ * para o decompose hh/mm/ss e só prefixa o sinal.
  */
-private fun formatCounter(elapsedSeconds: Long): String {
-    val absSeconds = kotlin.math.abs(elapsedSeconds)
-    val hours = absSeconds / 3600
-    val minutes = (absSeconds % 3600) / 60
-    val seconds = absSeconds % 60
-
-    return if (hours > 0) {
-        "+%02d:%02d:%02d".format(hours, minutes, seconds)
-    } else {
-        "+%02d:%02d".format(minutes, seconds)
-    }
-}
+private fun formatCounter(elapsedSeconds: Long): String =
+    "+" + formatCountdown(elapsedSeconds.coerceAtLeast(0L))
 
 /**
  * Formata segundos em "MM:SS" ou "HH:MM:SS" se > 1 hora.

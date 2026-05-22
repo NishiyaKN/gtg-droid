@@ -1,7 +1,6 @@
 package com.gtg.app.presentation.alarm
 
 import android.content.Context
-import android.media.AudioAttributes
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -64,18 +63,10 @@ object VibrationPlayer {
             return
         }
 
-        val attrs = AudioAttributes.Builder()
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .setUsage(
-                if (bypassDnd) AudioAttributes.USAGE_ALARM
-                else AudioAttributes.USAGE_NOTIFICATION_RINGTONE,
-            )
-            .build()
-
         try {
             vibrator.vibrate(
                 VibrationEffect.createWaveform(PATTERN, REPEAT_FROM_INDEX),
-                attrs,
+                alarmAudioAttributes(bypassDnd),
             )
             current = vibrator
         } catch (e: Exception) {

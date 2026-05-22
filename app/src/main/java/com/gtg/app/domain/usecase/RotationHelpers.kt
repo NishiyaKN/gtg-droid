@@ -1,11 +1,13 @@
 package com.gtg.app.domain.usecase
 
+import android.util.Log
 import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.domain.model.ActivityWindow
 import com.gtg.app.domain.model.Exercise
 import com.gtg.app.domain.scheduler.AlarmScheduler
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.time.ZoneId
 
 /**
@@ -56,6 +58,27 @@ fun findNextActiveDate(
 }
 
 /**
+ * `true` quando [now] está dentro da [ActivityWindow] em um dia ativo.
+ * `window == null` (não configurada) é tratado como "sempre ativo".
+ *
+ * Compartilhado entre `HomeViewModel.restartCountdown` (gate de `canCheck`
+ * no chain mode) e `AlarmReceiver.handleDispatch` (gate dos alertas) para
+ * que a noção de "dentro da janela" não derive.
+ */
+fun isInsideActiveWindow(
+    now: LocalDateTime,
+    window: ActivityWindow?,
+    activeDays: Set<DayOfWeek>,
+): Boolean {
+    if (now.dayOfWeek !in activeDays) return false
+    if (window == null) return true
+    val time = now.toLocalTime()
+    return !time.isBefore(window.startTime) && !time.isAfter(window.endTime)
+}
+
+private const val ROTATION_HELPERS_TAG = "RotationHelpers"
+
+/**
  * Empurra a cadeia ativa para o início da janela do próximo dia ativo,
  * preservando o exercício pending atual.
  *
@@ -67,19 +90,16 @@ fun findNextActiveDate(
  *   escaparam da validação no agendamento).
  *
  * **Precondition: [AlarmScheduler.canScheduleExactAlarms]`() == true`**. Se
- * `false` (permissão `SCHEDULE_EXACT_ALARM` revogada em runtime), retorna
- * sem tocar `SessionPreferences` — `AlarmSchedulerImpl` engole
- * `SecurityException` silenciosamente, então ordering `schedule → setNextAlarm`
- * não nos protege; precondition é a única defesa para evitar prefs apontando
- * para alarme inexistente.
+ * `false` (permissão `SCHEDULE_EXACT_ALARM` revogada em runtime), loga warn
+ * e retorna sem tocar `SessionPreferences` — `AlarmSchedulerImpl` engole
+ * `SecurityException` silenciosamente, então ordering `schedule →
+ * setNextAlarm` não nos protege; precondition é a única defesa para evitar
+ * prefs apontando para alarme inexistente. Idempotente nesse caso.
  *
  * Cancela alarme primary + overshoot, computa próximo dia ativo via
  * [findNextActiveDate], agenda primary para `nextDate.atTime(window.startTime)`,
  * persiste em [SessionPreferences.setNextAlarm] e zera
  * [SessionPreferences.firstAlarmInChainMillis] — nova cadeia amanhã.
- *
- * @return `true` se o reschedule foi executado, `false` se permissão revogada
- *   (caller pode logar/notificar). Idempotente em ambos os casos.
  */
 fun rescheduleForNextDay(
     alarmScheduler: AlarmScheduler,
@@ -89,8 +109,14 @@ fun rescheduleForNextDay(
     pendingExerciseId: Long,
     pendingExerciseName: String,
     pendingTargetReps: Int,
-): Boolean {
-    if (!alarmScheduler.canScheduleExactAlarms()) return false
+) {
+    if (!alarmScheduler.canScheduleExactAlarms()) {
+        Log.w(
+            ROTATION_HELPERS_TAG,
+            "rescheduleForNextDay skipped — SCHEDULE_EXACT_ALARM permission revoked",
+        )
+        return
+    }
 
     val nextDate = findNextActiveDate(LocalDate.now(), activeDays)
     val nextDateTime = nextDate.atTime(window.startTime)
@@ -115,5 +141,4 @@ fun rescheduleForNextDay(
         targetReps = pendingTargetReps,
     )
     sessionPrefs.setFirstAlarmInChain(0L)
-    return true
 }

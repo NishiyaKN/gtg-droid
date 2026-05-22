@@ -18,6 +18,7 @@ import com.gtg.app.domain.usecase.DynamicSchedulerUseCase
 import com.gtg.app.domain.usecase.GetExerciseBreakdownUseCase
 import com.gtg.app.domain.usecase.PlannedSet
 import com.gtg.app.domain.usecase.PreviewTodayRoutineUseCase
+import com.gtg.app.domain.usecase.isInsideActiveWindow
 import com.gtg.app.domain.usecase.pickNextExerciseInRotation
 import com.gtg.app.domain.usecase.rescheduleForNextDay
 import com.gtg.app.presentation.alarm.AlarmReceiver
@@ -154,13 +155,19 @@ class HomeViewModel @Inject constructor(
         onBufferOverflow = BufferOverflow.DROP_OLDEST,
     )
 
+    /**
+     * Campos cujo diff dispara `restartCountdown()` + `previewTriggers`.
+     * `firstAlarmInChainMillis` foi deliberadamente excluído — chain
+     * transitions atualizam `_state.copy(chainStartedAtMillis = ...)`
+     * diretamente; relaunch do countdown a cada Check/dispatch é
+     * desnecessário (timer já está rodando, só a árvore visual muda).
+     */
     private data class PrefsSnapshot(
         val nextAlarmMillis: Long,
         val isSessionActive: Boolean,
         val pendingExerciseId: Long,
         val baseIntervalMinutes: Long,
         val activeDaysOfWeek: Set<DayOfWeek>,
-        val firstAlarmInChainMillis: Long,
     )
 
     // `null` no boot: garante que a 1ª emissão do observer não dispare lógica
@@ -240,7 +247,6 @@ class HomeViewModel @Inject constructor(
                     pendingExerciseId = sessionPrefs.pendingExerciseId,
                     baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
                     activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
-                    firstAlarmInChainMillis = sessionPrefs.firstAlarmInChainMillis,
                 )
 
                 _state.update { current ->
@@ -252,7 +258,7 @@ class HomeViewModel @Inject constructor(
                         dailySetTarget = sessionPrefs.dailySetTarget,
                         showDailyTarget = sessionPrefs.showDailyTarget,
                         baseIntervalMinutes = snapshot.baseIntervalMinutes,
-                        chainStartedAtMillis = snapshot.firstAlarmInChainMillis.takeIf { it > 0L },
+                        chainStartedAtMillis = sessionPrefs.firstAlarmInChainMillis.takeIf { it > 0L },
                     )
                 }
 
@@ -449,48 +455,64 @@ class HomeViewModel @Inject constructor(
         val nextMillis = sessionPrefs.nextAlarmMillis
         if (nextMillis <= 0L || !sessionPrefs.isSessionActive) return
 
+        // Capturado uma vez no relaunch — observeSessionPreferences chama
+        // restartCountdown sempre que activeDaysOfWeek muda, então não há
+        // staleness risk e evitamos getStringSet() do SharedPreferences a
+        // cada tick (1Hz × N dias de sessão).
+        val activeDays = sessionPrefs.activeDaysOfWeek
+
         countdownJob = viewModelScope.launch {
             while (isActive) {
                 val nowMillis = System.currentTimeMillis()
+                val now = LocalDateTime.now()
                 val remaining = (nextMillis - nowMillis) / 1000
 
                 // Roll-over: se passou do fim da janela de hoje E o alarme já
                 // está em overdue, agenda para amanhã com mesmo exercício.
                 val window = _state.value.activeWindow
                 if (window != null && remaining < 0) {
-                    val now = LocalDateTime.now()
                     val windowEndToday = now.toLocalDate().atTime(window.endTime)
                     if (now.isAfter(windowEndToday)) {
-                        rescheduleForNextDayKeepingExercise(window)
+                        // setNextAlarm dentro do helper já zera isAlarmPending.
+                        // Observer captura e reinicia countdown apontando para
+                        // o novo nextAlarmMillis (positivo agora). Helper zera
+                        // firstAlarmInChainMillis — nova cadeia amanhã.
+                        rescheduleForNextDay(
+                            alarmScheduler = alarmScheduler,
+                            sessionPrefs = sessionPrefs,
+                            window = window,
+                            activeDays = activeDays,
+                            pendingExerciseId = sessionPrefs.pendingExerciseId,
+                            pendingExerciseName = sessionPrefs.pendingExerciseName,
+                            pendingTargetReps = sessionPrefs.pendingTargetReps,
+                        )
                         return@launch
                     }
                 }
 
                 // Chain UX: quando há cadeia ativa (firstAlarmInChainMillis > 0),
                 // calcula tempo decorrido desde T0 e libera Check a qualquer
-                // momento dentro da janela. coerceAtLeast(0L) defende contra
-                // clock skew / NTP adjustment (counter nunca renderiza negativo).
+                // momento dentro da janela.
                 val chainStart = _state.value.chainStartedAtMillis
-                val chainElapsed = if (chainStart != null) {
-                    ((nowMillis - chainStart) / 1000).coerceAtLeast(0L)
-                } else {
-                    0L
-                }
-
-                val canCheck = if (chainStart != null) {
-                    isInsideActiveWindow(LocalDateTime.now(), window, sessionPrefs.activeDaysOfWeek)
-                } else {
-                    remaining <= CHECK_WINDOW_SECONDS
-                }
                 val isOverdue = remaining < 0
 
                 _state.update {
-                    it.copy(
-                        remainingSeconds = remaining,
-                        chainElapsedSeconds = chainElapsed,
-                        canCheck = canCheck,
-                        isOverdue = isOverdue,
-                    )
+                    if (chainStart != null) {
+                        it.copy(
+                            remainingSeconds = remaining,
+                            // coerceAtLeast defende contra clock skew / NTP.
+                            chainElapsedSeconds = ((nowMillis - chainStart) / 1000)
+                                .coerceAtLeast(0L),
+                            canCheck = isInsideActiveWindow(now, window, activeDays),
+                            isOverdue = isOverdue,
+                        )
+                    } else {
+                        it.copy(
+                            remainingSeconds = remaining,
+                            canCheck = remaining <= CHECK_WINDOW_SECONDS,
+                            isOverdue = isOverdue,
+                        )
+                    }
                 }
 
                 // Marca alarme pending exatamente ao cruzar zero — útil pra que
@@ -505,32 +527,6 @@ class HomeViewModel @Inject constructor(
         }
     }
 
-    /**
-     * Reagenda silenciosamente para o início da janela do próximo dia ATIVO,
-     * preservando o exercício atual pending (não avança a rotação — o set foi
-     * perdido, não pulado deliberadamente).
-     *
-     * Respeita `activeDaysOfWeek`: se sáb/dom estão desligados e o usuário
-     * deixa a janela de sexta passar sem fazer Check, o reschedule pula para
-     * segunda em vez de cair em sábado.
-     *
-     * Delega ao helper [rescheduleForNextDay] em `RotationHelpers` — mesma
-     * lógica é invocada por `AlarmReceiver` no caminho out-of-window.
-     */
-    private fun rescheduleForNextDayKeepingExercise(window: ActivityWindow) {
-        rescheduleForNextDay(
-            alarmScheduler = alarmScheduler,
-            sessionPrefs = sessionPrefs,
-            window = window,
-            activeDays = sessionPrefs.activeDaysOfWeek,
-            pendingExerciseId = sessionPrefs.pendingExerciseId,
-            pendingExerciseName = sessionPrefs.pendingExerciseName,
-            pendingTargetReps = sessionPrefs.pendingTargetReps,
-        )
-        // setNextAlarm dentro do helper já zera isAlarmPending. Observer captura
-        // e reinicia o countdown apontando para o novo nextAlarmMillis (positivo
-        // agora). Helper zera firstAlarmInChainMillis — nova cadeia amanhã.
-    }
 
     // ── Ações do Usuário ─────────────────────────────────────────
 
@@ -748,25 +744,6 @@ class HomeViewModel @Inject constructor(
         val now = System.currentTimeMillis()
         sessionPrefs.setLastCheck(now)
         return now
-    }
-
-    /**
-     * `true` quando o instante atual está dentro da [ActivityWindow] em um dia
-     * ativo. Window `null` (não configurada) é tratada como "sempre ativo" —
-     * cadeia em sessão sem janela libera Check incondicionalmente.
-     *
-     * Usado em chain mode para gate de `canCheck` (R6 do plan): Check só fica
-     * habilitado durante cadeia quando há ainda janela ativa para fazê-lo.
-     */
-    private fun isInsideActiveWindow(
-        now: LocalDateTime,
-        window: ActivityWindow?,
-        activeDays: Set<DayOfWeek>,
-    ): Boolean {
-        if (now.dayOfWeek !in activeDays) return false
-        if (window == null) return true
-        val time = now.toLocalTime()
-        return !time.isBefore(window.startTime) && !time.isAfter(window.endTime)
     }
 
     private fun scheduleAndPersist(nextDateTime: LocalDateTime, exercise: Exercise) =
