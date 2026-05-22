@@ -108,6 +108,12 @@ class AlarmViewModel @Inject constructor(
             // o lastCheck antigo após Check pela AlarmActivity.
             sessionPrefs.setLastCheck(nowMillis)
 
+            // 2b. Encerra a cadeia de alerta — Check é o evento que zera
+            // firstAlarmInChainMillis (cadeia mental do usuário terminou com
+            // sucesso). Próximo dispatch via AlarmReceiver escreverá fresh
+            // timestamp via recordAlarmDispatchedNow.
+            sessionPrefs.setFirstAlarmInChain(0L)
+
             // 3. Reagendar (rotação avança mesmo se log foi pulado)
             scheduleNext(checkTime = now)
 
