@@ -1,8 +1,12 @@
 package com.gtg.app.domain.usecase
 
+import com.gtg.app.data.local.SessionPreferences
+import com.gtg.app.domain.model.ActivityWindow
 import com.gtg.app.domain.model.Exercise
+import com.gtg.app.domain.scheduler.AlarmScheduler
 import java.time.DayOfWeek
 import java.time.LocalDate
+import java.time.ZoneId
 
 /**
  * Helpers para rotação round-robin entre os exercícios ativos.
@@ -49,4 +53,67 @@ fun findNextActiveDate(
         if (candidate.dayOfWeek in activeDaysOfWeek) return candidate
     }
     return after.plusDays(1)
+}
+
+/**
+ * Empurra a cadeia ativa para o início da janela do próximo dia ativo,
+ * preservando o exercício pending atual.
+ *
+ * Invocado em dois caminhos:
+ * - [com.gtg.app.presentation.home.HomeViewModel] no countdown loop quando o
+ *   timer cruza o fim da [ActivityWindow] do dia.
+ * - [com.gtg.app.presentation.alarm.AlarmReceiver] no goAsync ao detectar
+ *   `now > endTime` no momento do disparo (defesa contra overshoots que
+ *   escaparam da validação no agendamento).
+ *
+ * **Precondition: [AlarmScheduler.canScheduleExactAlarms]`() == true`**. Se
+ * `false` (permissão `SCHEDULE_EXACT_ALARM` revogada em runtime), retorna
+ * sem tocar `SessionPreferences` — `AlarmSchedulerImpl` engole
+ * `SecurityException` silenciosamente, então ordering `schedule → setNextAlarm`
+ * não nos protege; precondition é a única defesa para evitar prefs apontando
+ * para alarme inexistente.
+ *
+ * Cancela alarme primary + overshoot, computa próximo dia ativo via
+ * [findNextActiveDate], agenda primary para `nextDate.atTime(window.startTime)`,
+ * persiste em [SessionPreferences.setNextAlarm] e zera
+ * [SessionPreferences.firstAlarmInChainMillis] — nova cadeia amanhã.
+ *
+ * @return `true` se o reschedule foi executado, `false` se permissão revogada
+ *   (caller pode logar/notificar). Idempotente em ambos os casos.
+ */
+fun rescheduleForNextDay(
+    alarmScheduler: AlarmScheduler,
+    sessionPrefs: SessionPreferences,
+    window: ActivityWindow,
+    activeDays: Set<DayOfWeek>,
+    pendingExerciseId: Long,
+    pendingExerciseName: String,
+    pendingTargetReps: Int,
+): Boolean {
+    if (!alarmScheduler.canScheduleExactAlarms()) return false
+
+    val nextDate = findNextActiveDate(LocalDate.now(), activeDays)
+    val nextDateTime = nextDate.atTime(window.startTime)
+    val nextMillis = nextDateTime
+        .atZone(ZoneId.systemDefault())
+        .toInstant()
+        .toEpochMilli()
+
+    alarmScheduler.cancel()
+    alarmScheduler.cancelOvershoot()
+    alarmScheduler.schedule(
+        triggerAt = nextDateTime,
+        exerciseId = pendingExerciseId,
+        exerciseName = pendingExerciseName,
+        targetReps = pendingTargetReps,
+    )
+
+    sessionPrefs.setNextAlarm(
+        epochMillis = nextMillis,
+        exerciseId = pendingExerciseId,
+        exerciseName = pendingExerciseName,
+        targetReps = pendingTargetReps,
+    )
+    sessionPrefs.setFirstAlarmInChain(0L)
+    return true
 }

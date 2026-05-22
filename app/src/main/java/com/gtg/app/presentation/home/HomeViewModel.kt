@@ -18,8 +18,8 @@ import com.gtg.app.domain.usecase.DynamicSchedulerUseCase
 import com.gtg.app.domain.usecase.GetExerciseBreakdownUseCase
 import com.gtg.app.domain.usecase.PlannedSet
 import com.gtg.app.domain.usecase.PreviewTodayRoutineUseCase
-import com.gtg.app.domain.usecase.findNextActiveDate
 import com.gtg.app.domain.usecase.pickNextExerciseInRotation
+import com.gtg.app.domain.usecase.rescheduleForNextDay
 import com.gtg.app.presentation.alarm.AlarmReceiver
 import com.gtg.app.presentation.alarm.AlarmSoundPlayer
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -481,38 +481,23 @@ class HomeViewModel @Inject constructor(
      * Respeita `activeDaysOfWeek`: se sáb/dom estão desligados e o usuário
      * deixa a janela de sexta passar sem fazer Check, o reschedule pula para
      * segunda em vez de cair em sábado.
+     *
+     * Delega ao helper [rescheduleForNextDay] em `RotationHelpers` — mesma
+     * lógica é invocada por `AlarmReceiver` no caminho out-of-window.
      */
     private fun rescheduleForNextDayKeepingExercise(window: ActivityWindow) {
-        val nextDate = findNextActiveDate(LocalDate.now(), sessionPrefs.activeDaysOfWeek)
-        val nextDateTime = nextDate.atTime(window.startTime)
-        val nextMillis = nextDateTime
-            .atZone(ZoneId.systemDefault())
-            .toInstant()
-            .toEpochMilli()
-
-        val exerciseId = sessionPrefs.pendingExerciseId
-        val exerciseName = sessionPrefs.pendingExerciseName
-        val targetReps = sessionPrefs.pendingTargetReps
-
-        alarmScheduler.cancel()
-        // Evita que um overshoot agendado ontem dispare hoje — limpa antes do
-        // reschedule para o dia seguinte.
-        alarmScheduler.cancelOvershoot()
-        alarmScheduler.schedule(
-            triggerAt = nextDateTime,
-            exerciseId = exerciseId,
-            exerciseName = exerciseName,
-            targetReps = targetReps,
+        rescheduleForNextDay(
+            alarmScheduler = alarmScheduler,
+            sessionPrefs = sessionPrefs,
+            window = window,
+            activeDays = sessionPrefs.activeDaysOfWeek,
+            pendingExerciseId = sessionPrefs.pendingExerciseId,
+            pendingExerciseName = sessionPrefs.pendingExerciseName,
+            pendingTargetReps = sessionPrefs.pendingTargetReps,
         )
-
-        sessionPrefs.setNextAlarm(
-            epochMillis = nextMillis,
-            exerciseId = exerciseId,
-            exerciseName = exerciseName,
-            targetReps = targetReps,
-        )
-        // setNextAlarm já zera isAlarmPending. Observer captura e reinicia
-        // o countdown apontando para o novo nextAlarmMillis (positivo agora).
+        // setNextAlarm dentro do helper já zera isAlarmPending. Observer captura
+        // e reinicia o countdown apontando para o novo nextAlarmMillis (positivo
+        // agora). Helper zera firstAlarmInChainMillis — nova cadeia amanhã.
     }
 
     // ── Ações do Usuário ─────────────────────────────────────────
