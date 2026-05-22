@@ -344,6 +344,23 @@ class SessionPreferences @Inject constructor(
         prefs.edit().putLong(KEY_FIRST_ALARM_IN_CHAIN_MILLIS, epochMillis).apply()
     }
 
+    /**
+     * Registra um disparo de alarme atomicamente: marca `isAlarmPending = true`
+     * e — se for o primeiro disparo da cadeia (`firstAlarmInChainMillis == 0L`)
+     * — escreve `firstAlarmInChainMillis = now`. Single `.edit().apply()` para
+     * que o `OnSharedPreferenceChangeListener` emita um único tick em vez de
+     * dois — evita janela transient em que a Home vê
+     * `isAlarmPending=true / chainStartedAtMillis=null` (renderia o estado
+     * overdue legacy antes da troca para chain UX).
+     */
+    fun recordAlarmDispatchedNow(nowMillis: Long) {
+        val edit = prefs.edit().putBoolean(KEY_IS_ALARM_PENDING, true)
+        if (prefs.getLong(KEY_FIRST_ALARM_IN_CHAIN_MILLIS, 0L) == 0L) {
+            edit.putLong(KEY_FIRST_ALARM_IN_CHAIN_MILLIS, nowMillis)
+        }
+        edit.apply()
+    }
+
     fun setOvershootRepeatEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_OVERSHOOT_ENABLED, enabled).apply()
     }
