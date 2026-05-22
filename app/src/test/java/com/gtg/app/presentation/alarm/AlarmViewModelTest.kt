@@ -147,24 +147,10 @@ class AlarmViewModelTest {
         verify(exactly = 1) { alarmScheduler.schedule(any(), eq(1L), eq("Flexão"), any()) }
     }
 
-    @Test
-    fun `performSkip cancela overshoot, rotaciona e nao registra log`() = runTest {
-        val vm = buildViewModel()
-
-        vm.performSkip()
-        advanceUntilIdle()
-
-        verify(exactly = 1) { alarmScheduler.cancelOvershoot() }
-        coVerify(exactly = 0) { exerciseLogRepository.insert(any<ExerciseLog>()) }
-        verify(exactly = 1) {
-            alarmScheduler.schedule(
-                triggerAt = any(),
-                exerciseId = 2L,
-                exerciseName = "Barra",
-                targetReps = barra.targetReps,
-            )
-        }
-    }
+    // Teste de performSkip removido — botão "Pular" + AlarmViewModel.performSkip
+    // foram retirados do produto no lote alarm-snooze-rotation-followups
+    // (2026-05-21). Snooze cobre "não agora" e Check é o único caminho que
+    // avança a rotação com log.
 
     @Test
     fun `Check com lista vazia limpa sessao e nao agenda`() = runTest {
