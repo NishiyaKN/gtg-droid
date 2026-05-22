@@ -172,6 +172,15 @@ class AlarmViewModel @Inject constructor(
                 targetReps = targetReps,
             )
 
+            // Cross-day rollover (clampSnoozeToBounds empurrou pro próximo dia
+            // ativo): encerra a cadeia atual — o T0 de ontem não tem mais
+            // significado pro contador. Sem isso, o counter exibe ex.: "+14h+"
+            // ao abrir a Home no dia seguinte. Idêntico ao reset que
+            // rescheduleForNextDay já faz no rollover do countdown.
+            if (nextDateTime.toLocalDate() != now.toLocalDate()) {
+                sessionPrefs.setFirstAlarmInChain(0L)
+            }
+
             _actionCompleted.value = true
         }
     }

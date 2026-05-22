@@ -158,11 +158,6 @@ class AlarmReceiver : BroadcastReceiver() {
             return
         }
 
-        // Marca dispatch atomicamente: isAlarmPending=true + (se for primeiro da
-        // cadeia) firstAlarmInChainMillis=now. Single .edit().apply() para que
-        // o listener da Home emita um tick só.
-        sessionPrefs.recordAlarmDispatchedNow(System.currentTimeMillis())
-
         // Build da notificação (sem disparar ainda — race invariant exige
         // scheduleOvershoot antes).
         val channelId = if (sessionPrefs.bypassDnd) {
@@ -235,6 +230,17 @@ class AlarmReceiver : BroadcastReceiver() {
         ) {
             NotificationManagerCompat.from(context).notify(NOTIFICATION_ID, notification)
         }
+
+        // Marca dispatch atomicamente: isAlarmPending=true + (se for primeiro da
+        // cadeia) firstAlarmInChainMillis=now. Single .edit().apply() para que
+        // o listener da Home emita um tick só.
+        //
+        // Posicionado APÓS notify (não antes) para evitar partial-state window
+        // se withTimeout(9s) expirar entre o write e o notify — UI veria
+        // pending=true sem notificação correspondente. Race invariant doc
+        // exige scheduleOvershoot antes de notify, mas é silente sobre o
+        // chain anchor write; aqui está depois do gate visível.
+        sessionPrefs.recordAlarmDispatchedNow(System.currentTimeMillis())
 
         // Modalidades — Som + Vibração. Visual é responsabilidade da
         // AlarmActivity (lê visualEnabled e aplica o pulse na UI).

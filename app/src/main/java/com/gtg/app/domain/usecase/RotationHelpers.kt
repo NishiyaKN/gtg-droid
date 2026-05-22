@@ -113,8 +113,17 @@ fun rescheduleForNextDay(
     if (!alarmScheduler.canScheduleExactAlarms()) {
         Log.w(
             ROTATION_HELPERS_TAG,
-            "rescheduleForNextDay skipped — SCHEDULE_EXACT_ALARM permission revoked",
+            "rescheduleForNextDay aborted — SCHEDULE_EXACT_ALARM revoked; encerrando cadeia",
         )
+        // Permissão revogada em runtime: não conseguimos reagendar, mas precisamos
+        // ao menos encerrar limpamente a cadeia atual para que a UI não fique
+        // presa em chain mode mostrando counter crescente sem alarme armado.
+        // Cancela overshoots residuais (já não vão tocar de qualquer forma sem
+        // SCHEDULE_EXACT_ALARM) e zera o anchor. nextAlarmMillis fica stale —
+        // o usuário verá Check disabled (sem cadeia, sem janela) e precisa ir
+        // em Settings re-conceder permissão antes do próximo Start.
+        alarmScheduler.cancelOvershoot()
+        sessionPrefs.setFirstAlarmInChain(0L)
         return
     }
 

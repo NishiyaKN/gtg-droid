@@ -515,12 +515,14 @@ class HomeViewModel @Inject constructor(
                     }
                 }
 
-                // Marca alarme pending exatamente ao cruzar zero — útil pra que
-                // outros consumidores (AlarmReceiver) saibam que o alarme está
-                // aguardando resolução do usuário.
-                if (remaining == 0L && !sessionPrefs.isAlarmPending) {
-                    sessionPrefs.setAlarmPending(true)
-                }
+                // Não marcamos isAlarmPending aqui — esse write é
+                // responsabilidade ÚNICA de AlarmReceiver.recordAlarmDispatchedNow,
+                // que faz a escrita atômica de isAlarmPending + firstAlarmInChainMillis
+                // em single edit().apply(). Marcar aqui criava uma janela de ~1s
+                // em que a Home renderizava UI overdue legacy (chainStartedAtMillis
+                // ainda null) antes do AlarmReceiver atualizar o anchor —
+                // race observável em fluxos onde o app está em foreground quando
+                // o alarme dispara.
 
                 delay(1000)
             }

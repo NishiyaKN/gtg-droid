@@ -59,24 +59,27 @@ fun WheelNumberPicker(
     val state = rememberLazyListState(initialFirstVisibleItemIndex = coerced)
     val flingBehavior = rememberSnapFlingBehavior(state)
 
-    // Índice central do viewport — pega o item da posição central da
-    // layoutInfo.visibleItemsInfo (mais robusto contra contentPadding
-    // do que `firstVisibleItemIndex + visibleItems/2`, que tem semântica
-    // ambígua em LazyColumn com contentPadding vertical não-zero).
+    // Índice central do viewport — calcula via proximidade do center
+    // geométrico ao viewportCenter. O slot-based `items[size/2]` falha no
+    // boundary (value=0 ou value=max): com `contentPadding(vertical=
+    // itemHeight)`, a primeira composição em value=0 tem
+    // visibleItemsInfo = [{index=0}, {index=1}] (size=2), então
+    // `items[1]` retornaria index=1 mesmo com item 0 visualmente centrado.
+    // Mesmo bug simétrico no top: em value=max, `items[size/2]` aponta um
+    // índice ANTES do centro real.
     //
-    // Por que não `items.minBy { abs(...) }.index`: em fling rápido o snap
-    // não cai pixel-perfect e o item "mais central por proximidade visual"
-    // pode estar 1 índice errado da posição alvo do snap, fazendo
-    // onValueChange emitir o valor errado. Atacar pelo índice estrutural
-    // (centro da lista visível) + scrollToItem ao fim do fling para
-    // garantir o snap correto.
+    // O minBy geométrico estava correto pré-refactor; o pixel-perfect snap
+    // ao fim do fling (LaunchedEffect abaixo) é o que fecha o gap em fling
+    // rápido. Combinado, garantem ambos: posição estável (geométrico após
+    // snap) e correção determinística (scrollToItem instantâneo).
     val centeredIndex by remember {
         derivedStateOf {
             val info = state.layoutInfo
             val items = info.visibleItemsInfo
             if (items.isEmpty()) return@derivedStateOf coerced
-            val centralSlot = items.size / 2
-            items[centralSlot].index.coerceIn(0, max)
+            val viewportCenter = (info.viewportStartOffset + info.viewportEndOffset) / 2
+            items.minBy { abs((it.offset + it.size / 2) - viewportCenter) }.index
+                .coerceIn(0, max)
         }
     }
 
