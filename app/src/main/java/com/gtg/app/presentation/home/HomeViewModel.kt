@@ -99,6 +99,19 @@ data class HomeUiState(
     val activeWindow: ActivityWindow? = null,
     /** Conveniência derivada — true sse [activeWindow] != null. */
     val hasActivityWindow: Boolean = false,
+    /**
+     * Epoch millis do primeiro disparo da cadeia atual, ou `null` se não há
+     * cadeia ativa. Quando `!= null`, a Home exibe contador crescente "+MM:SS"
+     * em vez do timer regressivo, e Check fica habilitado a qualquer momento
+     * dentro da janela.
+     */
+    val chainStartedAtMillis: Long? = null,
+    /**
+     * Segundos decorridos desde [chainStartedAtMillis]. Sempre `≥ 0` (clamp
+     * defensivo contra clock skew / NTP adjustment). Usado apenas quando
+     * [chainStartedAtMillis] `!= null`.
+     */
+    val chainElapsedSeconds: Long = 0,
 )
 
 // ──────────────────────────────────────────────────────────────
@@ -147,6 +160,7 @@ class HomeViewModel @Inject constructor(
         val pendingExerciseId: Long,
         val baseIntervalMinutes: Long,
         val activeDaysOfWeek: Set<DayOfWeek>,
+        val firstAlarmInChainMillis: Long,
     )
 
     // `null` no boot: garante que a 1ª emissão do observer não dispare lógica
@@ -226,6 +240,7 @@ class HomeViewModel @Inject constructor(
                     pendingExerciseId = sessionPrefs.pendingExerciseId,
                     baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
                     activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
+                    firstAlarmInChainMillis = sessionPrefs.firstAlarmInChainMillis,
                 )
 
                 _state.update { current ->
@@ -237,6 +252,7 @@ class HomeViewModel @Inject constructor(
                         dailySetTarget = sessionPrefs.dailySetTarget,
                         showDailyTarget = sessionPrefs.showDailyTarget,
                         baseIntervalMinutes = snapshot.baseIntervalMinutes,
+                        chainStartedAtMillis = snapshot.firstAlarmInChainMillis.takeIf { it > 0L },
                     )
                 }
 
@@ -450,12 +466,28 @@ class HomeViewModel @Inject constructor(
                     }
                 }
 
-                val canCheck = remaining <= CHECK_WINDOW_SECONDS
+                // Chain UX: quando há cadeia ativa (firstAlarmInChainMillis > 0),
+                // calcula tempo decorrido desde T0 e libera Check a qualquer
+                // momento dentro da janela. coerceAtLeast(0L) defende contra
+                // clock skew / NTP adjustment (counter nunca renderiza negativo).
+                val chainStart = _state.value.chainStartedAtMillis
+                val chainElapsed = if (chainStart != null) {
+                    ((nowMillis - chainStart) / 1000).coerceAtLeast(0L)
+                } else {
+                    0L
+                }
+
+                val canCheck = if (chainStart != null) {
+                    isInsideActiveWindow(LocalDateTime.now(), window, sessionPrefs.activeDaysOfWeek)
+                } else {
+                    remaining <= CHECK_WINDOW_SECONDS
+                }
                 val isOverdue = remaining < 0
 
                 _state.update {
                     it.copy(
                         remainingSeconds = remaining,
+                        chainElapsedSeconds = chainElapsed,
                         canCheck = canCheck,
                         isOverdue = isOverdue,
                     )
@@ -538,12 +570,14 @@ class HomeViewModel @Inject constructor(
     fun stopSession() {
         dismissActiveAlarm()
         alarmScheduler.cancel()
-        sessionPrefs.clearSession()
+        sessionPrefs.clearSession() // já zera firstAlarmInChainMillis
         countdownJob?.cancel()
         _state.update {
             it.copy(
                 isSessionActive = false,
                 remainingSeconds = 0,
+                chainStartedAtMillis = null,
+                chainElapsedSeconds = 0,
                 isAlarmPending = false,
             )
         }
@@ -601,6 +635,9 @@ class HomeViewModel @Inject constructor(
             dismissActiveAlarm()
 
             sessionPrefs.setLastCheck(nowMillis)
+            // Check encerra a cadeia mental — próximo dispatch do AlarmReceiver
+            // escreverá fresh timestamp via recordAlarmDispatchedNow.
+            sessionPrefs.setFirstAlarmInChain(0L)
 
             // Log: o exercício que ACABOU de ser feito (pending atual).
             if (currentId > 0L) {
@@ -711,6 +748,25 @@ class HomeViewModel @Inject constructor(
         val now = System.currentTimeMillis()
         sessionPrefs.setLastCheck(now)
         return now
+    }
+
+    /**
+     * `true` quando o instante atual está dentro da [ActivityWindow] em um dia
+     * ativo. Window `null` (não configurada) é tratada como "sempre ativo" —
+     * cadeia em sessão sem janela libera Check incondicionalmente.
+     *
+     * Usado em chain mode para gate de `canCheck` (R6 do plan): Check só fica
+     * habilitado durante cadeia quando há ainda janela ativa para fazê-lo.
+     */
+    private fun isInsideActiveWindow(
+        now: LocalDateTime,
+        window: ActivityWindow?,
+        activeDays: Set<DayOfWeek>,
+    ): Boolean {
+        if (now.dayOfWeek !in activeDays) return false
+        if (window == null) return true
+        val time = now.toLocalTime()
+        return !time.isBefore(window.startTime) && !time.isAfter(window.endTime)
     }
 
     private fun scheduleAndPersist(nextDateTime: LocalDateTime, exercise: Exercise) =

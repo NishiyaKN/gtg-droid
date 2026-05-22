@@ -57,6 +57,7 @@
     <string name="home_gtg_time">TIME FOR GtG!</string>
     <string name="home_almost_there">Almost there</string>
     <string name="home_next_exercise">Next exercise</string>
+    <string name="home_chain_label_paused">SNOOZED</string>
     <string name="home_overdue">overdue</string>
     <string name="home_target_reps_format">%d reps</string>
     <string name="home_do_check">DO CHECK</string>

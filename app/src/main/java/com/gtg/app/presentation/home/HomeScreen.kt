@@ -163,6 +163,8 @@ fun HomeScreen(
                             canCheck = state.canCheck,
                             isOverdue = state.isOverdue,
                             isAlarmRinging = state.isAlarmPending,
+                            chainStartedAtMillis = state.chainStartedAtMillis,
+                            chainElapsedSeconds = state.chainElapsedSeconds,
                             onManualCheck = viewModel::performManualCheck,
                             onDismissAlarm = viewModel::dismissAlarm,
                             onStop = viewModel::stopSession,
@@ -171,15 +173,28 @@ fun HomeScreen(
                 }
             }
 
-            // ── Preview da rotina (não mostra quando não há exercício) ──
+            // ── Preview da rotina (esconde durante cadeia ativa — foco
+            // visual fica no contador crescente e na decisão Check/continuar
+            // adiando). Fade-in/out 120ms casa com o Crossfade do conteúdo
+            // central acima, evitando layout-shift abrupto. ──
             if (state.routinePreview.isNotEmpty() &&
                 screenState != ScreenState.NO_EXERCISE
             ) {
                 item(key = "routine_preview") {
-                    RoutinePreviewCard(
-                        preview = state.routinePreview,
-                        isSessionActive = state.isSessionActive,
-                    )
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = state.chainStartedAtMillis == null,
+                        enter = androidx.compose.animation.fadeIn(
+                            animationSpec = tween(120),
+                        ),
+                        exit = androidx.compose.animation.fadeOut(
+                            animationSpec = tween(120),
+                        ),
+                    ) {
+                        RoutinePreviewCard(
+                            preview = state.routinePreview,
+                            isSessionActive = state.isSessionActive,
+                        )
+                    }
                 }
             }
         }
@@ -613,6 +628,8 @@ private fun CountdownContent(
     canCheck: Boolean,
     isOverdue: Boolean,
     isAlarmRinging: Boolean,
+    chainStartedAtMillis: Long?,
+    chainElapsedSeconds: Long,
     onManualCheck: () -> Unit,
     onDismissAlarm: () -> Unit,
     onStop: () -> Unit,
@@ -624,11 +641,22 @@ private fun CountdownContent(
         0f
     }
 
-    // Pulse no card e no botão quando overdue, para chamar atenção
+    // Estados visuais distintos:
+    // - inChain && isAlarmRinging → card vermelho + pulse + label "ADIADO" Bold
+    //   (cadeia ativa COM alarme tocando AGORA — retém urgência).
+    // - inChain && !isAlarmRinging → card normal + sem pulse + label "ADIADO"
+    //   Medium (usuário já silenciou/snoozou — chain blue calm).
+    // - !inChain && isOverdue → estado overdue legacy (red pulse + "HORA DO GTG").
+    // - !inChain && !isOverdue → countdown normal.
+    val inChain = chainStartedAtMillis != null
+    val urgentChain = inChain && isAlarmRinging
+    val pulseActive = urgentChain || (!inChain && isOverdue)
+    val redCard = urgentChain || (!inChain && isOverdue)
+
     val infiniteTransition = rememberInfiniteTransition(label = "overdue_pulse")
     val pulseScale by infiniteTransition.animateFloat(
         initialValue = 1f,
-        targetValue = if (isOverdue) 1.04f else 1f,
+        targetValue = if (pulseActive) 1.04f else 1f,
         animationSpec = infiniteRepeatable(
             animation = tween(700, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse,
@@ -636,25 +664,31 @@ private fun CountdownContent(
         label = "overdue_pulse_scale",
     )
 
-    val accentColor = if (isOverdue) GtgPrimary else Color.White
+    val accentColor = if (redCard || inChain) GtgPrimary else Color.White
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier.fillMaxWidth(),
     ) {
         // Status acima do nome do exercício
+        val statusRes = when {
+            inChain -> R.string.home_chain_label_paused
+            isOverdue -> R.string.home_gtg_time
+            remainingSeconds <= 60 -> R.string.home_almost_there
+            else -> R.string.home_next_exercise
+        }
+        val emphasizeStatus = inChain || isOverdue
         Text(
-            text = stringResource(
-                when {
-                    isOverdue -> R.string.home_gtg_time
-                    remainingSeconds <= 60 -> R.string.home_almost_there
-                    else -> R.string.home_next_exercise
-                },
-            ),
-            color = if (isOverdue) GtgPrimary else Color.White.copy(alpha = 0.5f),
-            fontSize = if (isOverdue) 16.sp else 14.sp,
-            fontWeight = if (isOverdue) FontWeight.Bold else FontWeight.Normal,
-            letterSpacing = if (isOverdue) 2.sp else 0.sp,
+            text = stringResource(statusRes),
+            color = if (emphasizeStatus) GtgPrimary else Color.White.copy(alpha = 0.5f),
+            fontSize = if (emphasizeStatus) 16.sp else 14.sp,
+            fontWeight = when {
+                urgentChain -> FontWeight.Bold
+                inChain -> FontWeight.Medium // calmChain — diferencia de overdue Bold
+                isOverdue -> FontWeight.Bold
+                else -> FontWeight.Normal
+            },
+            letterSpacing = if (emphasizeStatus) 2.sp else 0.sp,
         )
         Spacer(modifier = Modifier.height(4.dp))
         Text(
@@ -673,13 +707,13 @@ private fun CountdownContent(
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Card central com countdown (positivo ou negativo)
+        // Card central com contador (regressivo ou crescente)
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .scale(pulseScale),
             colors = CardDefaults.cardColors(
-                containerColor = if (isOverdue) {
+                containerColor = if (redCard) {
                     GtgPrimary.copy(alpha = 0.12f)
                 } else {
                     GtgSurface
@@ -693,19 +727,24 @@ private fun CountdownContent(
                     .padding(32.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                // 56sp Monospace é o teto; AutoShrinkText cai até 32sp quando
-                // o formato "-HH:MM:SS" (9 chars) não cabe na Card em telas
-                // estreitas. Antes era um switch manual 56sp↔44sp que ainda
-                // estourava em 320dp.
+                // Em cadeia → contador crescente "+MM:SS" desde o primeiro
+                // alarme da cadeia. Fora de cadeia → countdown regressivo
+                // "MM:SS" (ou "-MM:SS" em overdue legacy).
                 AutoShrinkText(
-                    text = formatCountdown(remainingSeconds),
+                    text = if (inChain) {
+                        formatCounter(chainElapsedSeconds)
+                    } else {
+                        formatCountdown(remainingSeconds)
+                    },
                     style = MaterialTheme.typography.countdownDisplay,
                     minFontSize = 32.sp,
                     color = accentColor,
                     modifier = Modifier.fillMaxWidth(),
                 )
 
-                if (isOverdue) {
+                // Secondary "atrasado" só no estado overdue LEGACY (não em
+                // cadeia — o label "ADIADO" acima já comunica o estado).
+                if (isOverdue && !inChain) {
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
                         text = stringResource(R.string.home_overdue),
@@ -717,8 +756,8 @@ private fun CountdownContent(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                // Progresso só faz sentido no countdown positivo
-                if (!isOverdue) {
+                // Progresso só no countdown regressivo (positivo, sem chain).
+                if (!isOverdue && !inChain) {
                     LinearProgressIndicator(
                         progress = { progress },
                         modifier = Modifier
@@ -733,14 +772,15 @@ private fun CountdownContent(
 
         Spacer(modifier = Modifier.height(32.dp))
 
-        // Botão Check — desabilitado fora da janela de 5min / overdue
+        // Botão Check — habilitado sempre durante cadeia dentro da janela,
+        // ou (sem cadeia) na janela de 5min antes / em overdue.
         Button(
             onClick = onManualCheck,
             enabled = canCheck,
             modifier = Modifier
                 .fillMaxWidth()
                 .heightIn(min = 56.dp)
-                .let { if (isOverdue) it.scale(pulseScale) else it },
+                .let { if (pulseActive) it.scale(pulseScale) else it },
             shape = RoundedCornerShape(16.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = GtgPrimary,
@@ -757,7 +797,7 @@ private fun CountdownContent(
             Spacer(modifier = Modifier.width(8.dp))
             Text(
                 text = stringResource(
-                    if (isOverdue) R.string.home_do_check else R.string.home_do_check_now,
+                    if (isOverdue || inChain) R.string.home_do_check else R.string.home_do_check_now,
                 ),
                 fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
@@ -828,6 +868,27 @@ private fun CountdownContent(
 }
 
 // ── Helpers ───────────────────────────────────────────────────────
+
+/**
+ * Formata segundos decorridos da cadeia em "+MM:SS" ou "+HH:MM:SS" se > 1 hora.
+ *
+ * Sempre positivo — caller (`HomeViewModel.restartCountdown`) já aplica
+ * `coerceAtLeast(0L)` para clamp contra clock skew / NTP. Mesmo assim,
+ * `abs()` defensivo aqui evita renderizar "+-" em qualquer caminho que
+ * passe um negativo.
+ */
+private fun formatCounter(elapsedSeconds: Long): String {
+    val absSeconds = kotlin.math.abs(elapsedSeconds)
+    val hours = absSeconds / 3600
+    val minutes = (absSeconds % 3600) / 60
+    val seconds = absSeconds % 60
+
+    return if (hours > 0) {
+        "+%02d:%02d:%02d".format(hours, minutes, seconds)
+    } else {
+        "+%02d:%02d".format(minutes, seconds)
+    }
+}
 
 /**
  * Formata segundos em "MM:SS" ou "HH:MM:SS" se > 1 hora.
