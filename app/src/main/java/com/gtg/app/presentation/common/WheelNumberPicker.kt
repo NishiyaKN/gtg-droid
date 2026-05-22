@@ -59,33 +59,56 @@ fun WheelNumberPicker(
     val state = rememberLazyListState(initialFirstVisibleItemIndex = coerced)
     val flingBehavior = rememberSnapFlingBehavior(state)
 
-    // Índice central do viewport — derivado da posição real medida do item.
-    // visibleItemsInfo fica vazio na primeira composição, daí o fallback.
+    // Índice central do viewport — pega o item da posição central da
+    // layoutInfo.visibleItemsInfo (mais robusto contra contentPadding
+    // do que `firstVisibleItemIndex + visibleItems/2`, que tem semântica
+    // ambígua em LazyColumn com contentPadding vertical não-zero).
+    //
+    // Por que não `items.minBy { abs(...) }.index`: em fling rápido o snap
+    // não cai pixel-perfect e o item "mais central por proximidade visual"
+    // pode estar 1 índice errado da posição alvo do snap, fazendo
+    // onValueChange emitir o valor errado. Atacar pelo índice estrutural
+    // (centro da lista visível) + scrollToItem ao fim do fling para
+    // garantir o snap correto.
     val centeredIndex by remember {
         derivedStateOf {
             val info = state.layoutInfo
             val items = info.visibleItemsInfo
             if (items.isEmpty()) return@derivedStateOf coerced
-            val viewportCenter = (info.viewportStartOffset + info.viewportEndOffset) / 2
-            items.minBy { abs((it.offset + it.size / 2) - viewportCenter) }.index
+            val centralSlot = items.size / 2
+            items[centralSlot].index.coerceIn(0, max)
         }
     }
 
     // Propaga o valor selecionado APENAS quando o scroll para. Sem isto, cada
     // pixel de scroll dispararia uma escrita em SharedPreferences.
+    //
+    // Ao detectar a transição `isScrollInProgress: true → false`, força
+    // `scrollToItem(centeredIndex)` (instantâneo, sem animação) para
+    // garantir snap pixel-perfect — `rememberSnapFlingBehavior` por si
+    // só pode deixar drift de fração de item após fling muito rápido,
+    // resultando em `centeredIndex` ambíguo.
     LaunchedEffect(state) {
+        var wasScrolling = false
         snapshotFlow { state.isScrollInProgress to centeredIndex }
             .distinctUntilChanged()
             .collect { (scrolling, idx) ->
                 if (!scrolling) {
+                    // Snap explícito ao terminar fling — robust contra drift.
+                    if (wasScrolling) {
+                        state.scrollToItem(idx.coerceIn(0, max))
+                    }
                     val v = idx.coerceIn(0, max)
                     if (v != value) onValueChange(v)
                 }
+                wasScrolling = scrolling
             }
     }
 
     // Reage a mudanças externas do valor (ex: ViewModel coercitivo). Não rola
     // enquanto o usuário está com o dedo na tela — evita "puxões" indesejados.
+    // Usa `scrollToItem` (instantâneo) intencionalmente — `animateScrollToItem`
+    // adicionaria delay antes de `onValueChange` sem ganho funcional.
     LaunchedEffect(value) {
         if (state.isScrollInProgress) return@LaunchedEffect
         val v = value.coerceIn(0, max)
