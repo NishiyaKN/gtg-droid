@@ -72,6 +72,7 @@ class SessionPreferences @Inject constructor(
         private const val KEY_VISUAL_ENABLED = "alert_visual_enabled"
         private const val KEY_VIBRATION_ENABLED = "alert_vibration_enabled"
         private const val KEY_INTERVAL_MODE = "interval_mode"
+        private const val KEY_FIRST_ALARM_IN_CHAIN_MILLIS = "first_alarm_in_chain_millis"
 
         const val DEFAULT_BASE_INTERVAL = 45L
         const val DEFAULT_DAILY_SET_TARGET = 10
@@ -185,6 +186,36 @@ class SessionPreferences @Inject constructor(
      */
     val lastCheckMillis: Long
         get() = prefs.getLong(KEY_LAST_CHECK_MILLIS, 0L)
+
+    /**
+     * Epoch millis do primeiro disparo da cadeia de alerta atual (anchor-class).
+     *
+     * "Cadeia" = sequência primary → overshoot → snooze → primary remarcado → ... até
+     * Check/Stop/rollover. Set apenas no primeiro disparo da cadeia em
+     * [com.gtg.app.presentation.alarm.AlarmReceiver] quando o valor atual é `0L`.
+     *
+     * **Anchor-class discipline:** secondary writers (snooze, overshoot, mudança
+     * mid-sessão de baseInterval/activeDays via `rescheduleFromAnchor`) **não**
+     * sobrescrevem — preservam o T0 original para que a Home exiba o tempo
+     * acumulado desde o primeiro alarme.
+     *
+     * **Reset paths (zera para 0L):**
+     * - `HomeViewModel.performManualCheck` e `AlarmViewModel.performCheck` (Check
+     *   feito, cadeia encerrou com sucesso).
+     * - `HomeViewModel.stopSession` (sessão encerrada).
+     * - `rescheduleForNextDay` em `RotationHelpers` (rollover de fim de janela —
+     *   nova cadeia amanhã). Invocado por `HomeViewModel` no countdown e por
+     *   `AlarmReceiver` no caminho out-of-window.
+     * - [clearSession] (sessão limpa).
+     * - [com.gtg.app.presentation.alarm.BootReceiver] **somente em
+     *   `ACTION_BOOT_COMPLETED`** (defensivo: device reboot encerra a cadeia
+     *   mental). `ACTION_MY_PACKAGE_REPLACED` preserva — update silencioso do
+     *   Play Store não invalida cadeia ativa.
+     *
+     * `0L` = sem cadeia ativa (default seguro para installs antigos sem o key).
+     */
+    val firstAlarmInChainMillis: Long
+        get() = prefs.getLong(KEY_FIRST_ALARM_IN_CHAIN_MILLIS, 0L)
 
     /** Re-alerta automático após o overshoot do alarme (passou do zero sem Check). */
     val overshootRepeatEnabled: Boolean
@@ -305,6 +336,14 @@ class SessionPreferences @Inject constructor(
         prefs.edit().putLong(KEY_LAST_CHECK_MILLIS, epochMillis).apply()
     }
 
+    /**
+     * Escreve o anchor da cadeia. Ver [firstAlarmInChainMillis] para semântica
+     * anchor-class — quem pode escrever, quem só preserva, quem reseta.
+     */
+    fun setFirstAlarmInChain(epochMillis: Long) {
+        prefs.edit().putLong(KEY_FIRST_ALARM_IN_CHAIN_MILLIS, epochMillis).apply()
+    }
+
     fun setOvershootRepeatEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_OVERSHOOT_ENABLED, enabled).apply()
     }
@@ -348,6 +387,7 @@ class SessionPreferences @Inject constructor(
             .putInt(KEY_PENDING_TARGET_REPS, 0)
             .putBoolean(KEY_IS_ALARM_PENDING, false)
             .putLong(KEY_LAST_CHECK_MILLIS, 0L)
+            .putLong(KEY_FIRST_ALARM_IN_CHAIN_MILLIS, 0L)
             .apply()
     }
 
