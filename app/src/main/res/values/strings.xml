@@ -54,9 +54,12 @@
     <string name="home_window_not_configured_title">Activity window not configured</string>
     <string name="home_window_not_configured_desc">Go to Settings (bottom tab) and set the time range when the app can notify you (e.g. 09:00 → 17:00).</string>
     <string name="home_start_session">START SESSION</string>
+    <string name="alarm_notification_title">GtG time!</string>
+    <string name="alarm_notification_text">%1$s — %2$d reps</string>
     <string name="home_gtg_time">TIME FOR GtG!</string>
     <string name="home_almost_there">Almost there</string>
     <string name="home_next_exercise">Next exercise</string>
+    <string name="home_chain_label_paused">SNOOZED</string>
     <string name="home_overdue">overdue</string>
     <string name="home_target_reps_format">%d reps</string>
     <string name="home_do_check">DO CHECK</string>
@@ -230,6 +233,5 @@
     <string name="alarm_title">TIME FOR GtG!</string>
     <string name="alarm_reps_label">repetitions</string>
     <string name="alarm_do_check">DO CHECK</string>
-    <string name="alarm_skip">Skip this set</string>
     <string name="alarm_snooze">Snooze %1$d min</string>
 </resources>

@@ -1,7 +1,6 @@
 package com.gtg.app.presentation.alarm
 
 import android.content.Context
-import android.media.AudioAttributes
 import android.media.Ringtone
 import android.media.RingtoneManager
 import android.net.Uri
@@ -59,20 +58,12 @@ object AlarmSoundPlayer {
                 return
             }
 
-        val attrs = AudioAttributes.Builder()
-            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
-            .setUsage(
-                if (bypassDnd) AudioAttributes.USAGE_ALARM
-                else AudioAttributes.USAGE_NOTIFICATION_RINGTONE,
-            )
-            .build()
-
         try {
             val ringtone = RingtoneManager.getRingtone(context, effectiveUri) ?: run {
                 Log.w(TAG, "Ringtone não pôde ser construída para $effectiveUri")
                 return
             }
-            ringtone.audioAttributes = attrs
+            ringtone.audioAttributes = alarmAudioAttributes(bypassDnd)
             ringtone.play()
             current = ringtone
         } catch (e: Exception) {

@@ -36,7 +36,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -75,7 +74,8 @@ import dagger.hilt.android.AndroidEntryPoint
  * 2. Tela acende + keyguard é dispensado.
  * 3. Usuário vê exercício + reps alvo.
  * 4. "FAZER CHECK" → [AlarmViewModel.performCheck] → log + reagendamento → finish().
- * 5. "Pular" → [AlarmViewModel.performSkip] → reagendamento sem log → finish().
+ * 5. "Adiar N min" → [AlarmViewModel.performSnooze] → reagendamento para `now + N`
+ *    preservando exercício; sem log de série.
  */
 @AndroidEntryPoint
 class AlarmActivity : ComponentActivity() {
@@ -110,7 +110,6 @@ class AlarmActivity : ComponentActivity() {
                     visualEnabled = viewModel.visualEnabled,
                     onCheck = viewModel::performCheck,
                     onSnooze = viewModel::performSnooze,
-                    onSkip = viewModel::performSkip,
                 )
             }
         }
@@ -178,7 +177,6 @@ private fun AlarmScreen(
     visualEnabled: Boolean,
     onCheck: () -> Unit,
     onSnooze: () -> Unit,
-    onSkip: () -> Unit,
 ) {
     // Animação pulsante no ícone para atrair atenção
     val infiniteTransition = rememberInfiniteTransition(label = "pulse")
@@ -358,19 +356,9 @@ private fun AlarmScreen(
                 )
             }
 
+            // Bottom breathing room — sem isso o Snooze fica colado ao
+            // bottom inset em verticalScroll com nav bar de gesture.
             Spacer(modifier = Modifier.height(16.dp))
-
-            // ── Botão Pular — discreto ──────────────────────────
-            TextButton(
-                onClick = onSkip,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(
-                    text = stringResource(R.string.alarm_skip),
-                    color = Color.White.copy(alpha = 0.5f),
-                    fontSize = 14.sp,
-                )
-            }
         }
     }
 }

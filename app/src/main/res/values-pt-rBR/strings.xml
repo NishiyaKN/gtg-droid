@@ -54,9 +54,12 @@
     <string name="home_window_not_configured_title">Janela de atividade não configurada</string>
     <string name="home_window_not_configured_desc">Vá em Configs (aba inferior) e defina o horário em que o app pode te notificar (ex: 09:00 → 17:00).</string>
     <string name="home_start_session">INICIAR SESSÃO</string>
+    <string name="alarm_notification_title">Hora do GtG!</string>
+    <string name="alarm_notification_text">%1$s — %2$d reps</string>
     <string name="home_gtg_time">HORA DO GtG!</string>
     <string name="home_almost_there">Quase lá</string>
     <string name="home_next_exercise">Próximo exercício</string>
+    <string name="home_chain_label_paused">ADIADO</string>
     <string name="home_overdue">atrasado</string>
     <string name="home_target_reps_format">%d reps</string>
     <string name="home_do_check">FAZER CHECK</string>
@@ -230,6 +233,5 @@
     <string name="alarm_title">HORA DO GtG!</string>
     <string name="alarm_reps_label">repetições</string>
     <string name="alarm_do_check">FAZER CHECK</string>
-    <string name="alarm_skip">Pular esta série</string>
     <string name="alarm_snooze">Adiar %1$d min</string>
 </resources>

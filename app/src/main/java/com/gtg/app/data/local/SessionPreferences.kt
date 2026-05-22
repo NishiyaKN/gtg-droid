@@ -72,6 +72,7 @@ class SessionPreferences @Inject constructor(
         private const val KEY_VISUAL_ENABLED = "alert_visual_enabled"
         private const val KEY_VIBRATION_ENABLED = "alert_vibration_enabled"
         private const val KEY_INTERVAL_MODE = "interval_mode"
+        private const val KEY_FIRST_ALARM_IN_CHAIN_MILLIS = "first_alarm_in_chain_millis"
 
         const val DEFAULT_BASE_INTERVAL = 45L
         const val DEFAULT_DAILY_SET_TARGET = 10
@@ -185,6 +186,25 @@ class SessionPreferences @Inject constructor(
      */
     val lastCheckMillis: Long
         get() = prefs.getLong(KEY_LAST_CHECK_MILLIS, 0L)
+
+    /**
+     * Epoch millis do primeiro disparo da cadeia de alerta atual (anchor-class).
+     *
+     * "Cadeia" = sequência primary → overshoot → snooze → primary remarcado → ...
+     * até Check/Stop/rollover. Escrito apenas no primeiro disparo (`AlarmReceiver`
+     * quando valor atual é `0L`); secondary writers (snooze, overshoot, mudança
+     * mid-sessão de baseInterval/activeDays) **não** sobrescrevem, preservando
+     * o T0 original. Resetado para `0L` por qualquer ação que encerre a cadeia:
+     * Check (`HomeViewModel.performManualCheck` / `AlarmViewModel.performCheck`),
+     * Stop (`HomeViewModel.stopSession`), rollover de janela (`rescheduleForNextDay`
+     * no `RotationHelpers`), [clearSession], e — defensivamente — `BootReceiver`
+     * em `ACTION_BOOT_COMPLETED` (preserva em `MY_PACKAGE_REPLACED`, que é
+     * update silencioso do Play Store onde a cadeia mental continua viva).
+     *
+     * `0L` = sem cadeia ativa (default seguro para installs antigos sem o key).
+     */
+    val firstAlarmInChainMillis: Long
+        get() = prefs.getLong(KEY_FIRST_ALARM_IN_CHAIN_MILLIS, 0L)
 
     /** Re-alerta automático após o overshoot do alarme (passou do zero sem Check). */
     val overshootRepeatEnabled: Boolean
@@ -305,6 +325,31 @@ class SessionPreferences @Inject constructor(
         prefs.edit().putLong(KEY_LAST_CHECK_MILLIS, epochMillis).apply()
     }
 
+    /**
+     * Escreve o anchor da cadeia. Ver [firstAlarmInChainMillis] para semântica
+     * anchor-class — quem pode escrever, quem só preserva, quem reseta.
+     */
+    fun setFirstAlarmInChain(epochMillis: Long) {
+        prefs.edit().putLong(KEY_FIRST_ALARM_IN_CHAIN_MILLIS, epochMillis).apply()
+    }
+
+    /**
+     * Registra um disparo de alarme atomicamente: marca `isAlarmPending = true`
+     * e — se for o primeiro disparo da cadeia (`firstAlarmInChainMillis == 0L`)
+     * — escreve `firstAlarmInChainMillis = now`. Single `.edit().apply()` para
+     * que o `OnSharedPreferenceChangeListener` emita um único tick em vez de
+     * dois — evita janela transient em que a Home vê
+     * `isAlarmPending=true / chainStartedAtMillis=null` (renderia o estado
+     * overdue legacy antes da troca para chain UX).
+     */
+    fun recordAlarmDispatchedNow(nowMillis: Long) {
+        val edit = prefs.edit().putBoolean(KEY_IS_ALARM_PENDING, true)
+        if (prefs.getLong(KEY_FIRST_ALARM_IN_CHAIN_MILLIS, 0L) == 0L) {
+            edit.putLong(KEY_FIRST_ALARM_IN_CHAIN_MILLIS, nowMillis)
+        }
+        edit.apply()
+    }
+
     fun setOvershootRepeatEnabled(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_OVERSHOOT_ENABLED, enabled).apply()
     }
@@ -348,6 +393,7 @@ class SessionPreferences @Inject constructor(
             .putInt(KEY_PENDING_TARGET_REPS, 0)
             .putBoolean(KEY_IS_ALARM_PENDING, false)
             .putLong(KEY_LAST_CHECK_MILLIS, 0L)
+            .putLong(KEY_FIRST_ALARM_IN_CHAIN_MILLIS, 0L)
             .apply()
     }
 

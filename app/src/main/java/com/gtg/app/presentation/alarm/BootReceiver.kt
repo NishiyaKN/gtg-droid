@@ -45,7 +45,22 @@ class BootReceiver : BroadcastReceiver() {
             action != Intent.ACTION_MY_PACKAGE_REPLACED
         ) return
 
-        // Sessão inativa → nada a fazer
+        // Defesa em profundidade contra ghost-chain: device reboot encerra a
+        // cadeia mental do usuário; zera o anchor para que o próximo dispatch
+        // escreva timestamp fresco. MY_PACKAGE_REPLACED é update silencioso do
+        // Play Store — preserva firstAlarmInChainMillis (usuário pode estar
+        // mid-cadeia e não tem motivo para perder o histórico de delay).
+        //
+        // ATENÇÃO: este reset roda ANTES do guard de sessão inativa para curar
+        // o ghost-state em que clearSession() foi interrompido por process kill
+        // entre a escrita em memória e o flush async para disco — cenário em
+        // que isSessionActive=false mas firstAlarmInChainMillis ainda > 0L.
+        // Sem isso, próxima sessão inicia herdando T0 stale.
+        if (action == Intent.ACTION_BOOT_COMPLETED) {
+            sessionPrefs.setFirstAlarmInChain(0L)
+        }
+
+        // Sessão inativa → resto do receiver não tem nada a fazer
         if (!sessionPrefs.isSessionActive) return
 
         val nextAlarmMillis = sessionPrefs.nextAlarmMillis

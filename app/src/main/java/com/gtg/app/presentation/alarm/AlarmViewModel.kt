@@ -108,21 +108,15 @@ class AlarmViewModel @Inject constructor(
             // o lastCheck antigo após Check pela AlarmActivity.
             sessionPrefs.setLastCheck(nowMillis)
 
+            // 2b. Encerra a cadeia de alerta — Check é o evento que zera
+            // firstAlarmInChainMillis (cadeia mental do usuário terminou com
+            // sucesso). Próximo dispatch via AlarmReceiver escreverá fresh
+            // timestamp via recordAlarmDispatchedNow.
+            sessionPrefs.setFirstAlarmInChain(0L)
+
             // 3. Reagendar (rotação avança mesmo se log foi pulado)
             scheduleNext(checkTime = now)
 
-            _actionCompleted.value = true
-        }
-    }
-
-    /**
-     * Usuário pulou a série. Reagenda SEM registrar log.
-     * Usa "agora" como checkTime para que o intervalo base conte a partir deste momento.
-     */
-    fun performSkip() {
-        viewModelScope.launch {
-            dismissActiveAlarmSideEffects()
-            scheduleNext(checkTime = LocalDateTime.now())
             _actionCompleted.value = true
         }
     }
@@ -177,6 +171,15 @@ class AlarmViewModel @Inject constructor(
                 exerciseName = exerciseName,
                 targetReps = targetReps,
             )
+
+            // Cross-day rollover (clampSnoozeToBounds empurrou pro próximo dia
+            // ativo): encerra a cadeia atual — o T0 de ontem não tem mais
+            // significado pro contador. Sem isso, o counter exibe ex.: "+14h+"
+            // ao abrir a Home no dia seguinte. Idêntico ao reset que
+            // rescheduleForNextDay já faz no rollover do countdown.
+            if (nextDateTime.toLocalDate() != now.toLocalDate()) {
+                sessionPrefs.setFirstAlarmInChain(0L)
+            }
 
             _actionCompleted.value = true
         }

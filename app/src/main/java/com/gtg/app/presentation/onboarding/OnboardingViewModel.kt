@@ -27,12 +27,23 @@ class OnboardingViewModel @Inject constructor(
     private val exerciseRepository: ExerciseRepository,
 ) : ViewModel() {
 
-    fun saveActivityWindow(startHour: Int, endHour: Int) {
+    fun saveActivityWindow(
+        startHour: Int,
+        startMinute: Int,
+        endHour: Int,
+        endMinute: Int,
+    ) {
         viewModelScope.launch {
             activityWindowRepository.save(
                 ActivityWindow(
-                    startTime = LocalTime.of(startHour.coerceIn(0, 23), 0),
-                    endTime = LocalTime.of(endHour.coerceIn(0, 23), 0),
+                    startTime = LocalTime.of(
+                        startHour.coerceIn(0, 23),
+                        startMinute.coerceIn(0, 59),
+                    ),
+                    endTime = LocalTime.of(
+                        endHour.coerceIn(0, 23),
+                        endMinute.coerceIn(0, 59),
+                    ),
                     isActive = true,
                 ),
             )
