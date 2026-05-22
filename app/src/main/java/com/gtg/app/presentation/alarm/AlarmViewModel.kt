@@ -122,18 +122,6 @@ class AlarmViewModel @Inject constructor(
     }
 
     /**
-     * Usuário pulou a série. Reagenda SEM registrar log.
-     * Usa "agora" como checkTime para que o intervalo base conte a partir deste momento.
-     */
-    fun performSkip() {
-        viewModelScope.launch {
-            dismissActiveAlarmSideEffects()
-            scheduleNext(checkTime = LocalDateTime.now())
-            _actionCompleted.value = true
-        }
-    }
-
-    /**
      * Usuário pediu para adiar este set por [SessionPreferences.overshootRepeatMinutes].
      *
      * Reagenda o alarme PRIMARY para `now + overshootRepeatMinutes` mantendo
