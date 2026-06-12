@@ -548,6 +548,157 @@ class DynamicSchedulerUseCaseTest {
         assertNull(result)
     }
 
+    // ── U3: decisão fire-time Ring/Suppress (guard do AlarmReceiver) ─
+
+    private fun decide(
+        now: LocalDateTime,
+        blocks: List<InactivityBlock>,
+        window: ActivityWindow = windowNineThirty,
+        intervalMode: IntervalMode = IntervalMode.DYNAMIC,
+        canScheduleExactAlarms: Boolean = true,
+    ) = useCase.decideFireTimeDispatch(
+        now = now,
+        window = window,
+        blocks = blocks,
+        intervalMode = intervalMode,
+        canScheduleExactAlarms = canScheduleExactAlarms,
+    )
+
+    @Test
+    fun `fireTime DYNAMIC dentro de bloco suprime e rearma no fim do cluster`() {
+        // Geometria do bug em staleness de calendário: evento criado depois
+        // do arme cobre o disparo das 09:30 → suprime e rearma 09:45.
+        val blocks = listOf(lunchBlock(LocalTime.of(9, 10), LocalTime.of(9, 40)))
+
+        val decision = decide(now = wednesday.atTime(9, 30), blocks = blocks)
+
+        assertEquals(
+            DynamicSchedulerUseCase.FireTimeDecision.SuppressAndReschedule(wednesday.atTime(9, 45)),
+            decision,
+        )
+    }
+
+    @Test
+    fun `fireTime fora de qualquer bloco toca`() {
+        val blocks = listOf(lunchBlock(LocalTime.of(9, 10), LocalTime.of(9, 40)))
+
+        val decision = decide(now = wednesday.atTime(11, 0), blocks = blocks)
+
+        assertEquals(DynamicSchedulerUseCase.FireTimeDecision.Ring, decision)
+    }
+
+    @Test
+    fun `fireTime dentro de gap livre entre clusters toca`() {
+        // O probe não pode "escorregar" para o próximo bloco: 09:30 está no
+        // gap livre (20min > buffer, clusters separados) → Ring.
+        val blocks = listOf(
+            lunchBlock(LocalTime.of(9, 0), LocalTime.of(9, 20)),
+            lunchBlock(LocalTime.of(9, 40), LocalTime.of(10, 0)),
+        )
+
+        val decision = decide(now = wednesday.atTime(9, 30), blocks = blocks)
+
+        assertEquals(DynamicSchedulerUseCase.FireTimeDecision.Ring, decision)
+    }
+
+    @Test
+    fun `fireTime back-to-back mesclado rearma apos o cluster inteiro`() {
+        // Espelho do teste de mescla gap==buffer no domínio fire-time.
+        val blocks = listOf(
+            lunchBlock(LocalTime.of(9, 0), LocalTime.of(10, 0)),
+            lunchBlock(LocalTime.of(10, 5), LocalTime.of(10, 30)),
+        )
+
+        val decision = decide(now = wednesday.atTime(9, 30), blocks = blocks)
+
+        assertEquals(
+            DynamicSchedulerUseCase.FireTimeDecision.SuppressAndReschedule(wednesday.atTime(10, 35)),
+            decision,
+        )
+    }
+
+    @Test
+    fun `fireTime STRICT dentro de bloco toca`() {
+        // Contrato AE7 — STRICT toca dentro de bloco por design.
+        val blocks = listOf(lunchBlock(LocalTime.of(9, 10), LocalTime.of(9, 40)))
+
+        val decision = decide(
+            now = wednesday.atTime(9, 30),
+            blocks = blocks,
+            intervalMode = IntervalMode.STRICT,
+        )
+
+        assertEquals(DynamicSchedulerUseCase.FireTimeDecision.Ring, decision)
+    }
+
+    @Test
+    fun `fireTime sem exact alarm converte para Ring antes de suprimir`() {
+        // Suprimir sem conseguir rearmar = alarme perdido em silêncio.
+        // Fail-open: incapacidade de rearme vira Ring, nunca abort-pós-suppress.
+        val blocks = listOf(lunchBlock(LocalTime.of(9, 10), LocalTime.of(9, 40)))
+
+        val decision = decide(
+            now = wednesday.atTime(9, 30),
+            blocks = blocks,
+            canScheduleExactAlarms = false,
+        )
+
+        assertEquals(DynamicSchedulerUseCase.FireTimeDecision.Ring, decision)
+    }
+
+    @Test
+    fun `fireTime cluster passando do fim da janela rola para o proximo dia`() {
+        // Reunião 17:00–19:00 com janela acabando 18:00: rearm 19:05 cairia
+        // fora da janela → nunca armar verbatim; rolar para o próximo dia.
+        val blocks = listOf(lunchBlock(LocalTime.of(17, 0), LocalTime.of(19, 0)))
+
+        val decision = decide(now = wednesday.atTime(17, 30), blocks = blocks)
+
+        assertEquals(DynamicSchedulerUseCase.FireTimeDecision.SuppressAndRollToNextDay, decision)
+    }
+
+    @Test
+    fun `fireTime cluster overnight clampado nao rearma cruzando meia-noite`() {
+        // Evento overnight particionado clampa em 23:59; rearm seria 00:04 do
+        // dia seguinte (full-screen às 00:04!) → rolar para o próximo dia.
+        val lateWindow = windowNineThirty.copy(
+            startTime = LocalTime.of(6, 0),
+            endTime = LocalTime.of(23, 45),
+        )
+        val blocks = listOf(lunchBlock(LocalTime.of(23, 0), LocalTime.of(23, 59)))
+
+        val decision = decide(
+            now = wednesday.atTime(23, 20),
+            blocks = blocks,
+            window = lateWindow,
+        )
+
+        assertEquals(DynamicSchedulerUseCase.FireTimeDecision.SuppressAndRollToNextDay, decision)
+    }
+
+    @Test
+    fun `fireTime suspend busca blocos do dia e decide`() = runTest {
+        // Variante suspend usada pelo receiver: busca manual + calendar do
+        // dia de `now` e delega à decisão pura.
+        val (scheduler, _, _) = stubbedUseCase(
+            blocksByDate = mapOf(
+                wednesday to listOf(lunchBlock(LocalTime.of(9, 10), LocalTime.of(9, 40))),
+            ),
+        )
+
+        val decision = scheduler.decideFireTimeDispatch(
+            now = wednesday.atTime(9, 30),
+            window = windowNineThirty,
+            intervalMode = IntervalMode.DYNAMIC,
+            canScheduleExactAlarms = true,
+        )
+
+        assertEquals(
+            DynamicSchedulerUseCase.FireTimeDecision.SuppressAndReschedule(wednesday.atTime(9, 45)),
+            decision,
+        )
+    }
+
     // ── U2: calculateNextAlarm resolve rollovers contra blocos ──────
 
     @Test

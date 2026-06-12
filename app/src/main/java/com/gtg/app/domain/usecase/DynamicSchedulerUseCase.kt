@@ -62,6 +62,13 @@ class DynamicSchedulerUseCase @Inject constructor(
          */
         const val MAX_FIRST_ALARM_LOOKAHEAD_DAYS = 7
 
+        /**
+         * Offset fixo do piso de rearme fire-time: o horário rearmado é
+         * sempre ≥ `now + este offset` (nunca um best-effort dinâmico).
+         * Protege contra rearme no passado → loop de disparo imediato.
+         */
+        const val FIRE_TIME_REARM_FLOOR_MINUTES = 1L
+
         private const val TAG = "DynamicScheduler"
     }
 
@@ -508,6 +515,124 @@ class DynamicSchedulerUseCase @Inject constructor(
                 "exaurido a partir de $startDate — degradando para início bare de $lastExamined",
         )
         return lastExamined.atTime(window.startTime)
+    }
+
+    /**
+     * Decisão do guard fire-time do AlarmReceiver (fix 2026-06-11).
+     */
+    sealed interface FireTimeDecision {
+        /** Disparo válido — seguir o fluxo normal de notificação. */
+        data object Ring : FireTimeDecision
+
+        /**
+         * `now` caiu dentro de um bloco: suprimir o toque e rearmar para
+         * [rearmAt] (fim do cluster + buffer, piso estritamente após now;
+         * garantido same-day e dentro da janela por construção).
+         */
+        data class SuppressAndReschedule(val rearmAt: LocalDateTime) : FireTimeDecision
+
+        /**
+         * `now` está em bloco cujo rearme cairia fora da janela do dia (ou
+         * cruzaria meia-noite via clamp 23:59) — nunca armar esse horário
+         * verbatim. Primary: rolar para o próximo dia via
+         * [rescheduleForNextDay]; overshoot: deixar a cadeia estancar, como
+         * já acontece no fim da janela.
+         */
+        data object SuppressAndRollToNextDay : FireTimeDecision
+    }
+
+    /**
+     * Decide se um disparo às [now] deve tocar ou ser suprimido por um bloco
+     * (manual ou Calendar) que cobre o momento — tipicamente porque o evento
+     * foi criado/movido DEPOIS do alarme ter sido armado (defesa em
+     * profundidade; o conserto principal é no schedule-site).
+     *
+     * Regras:
+     * - STRICT → [FireTimeDecision.Ring] sempre (contrato AE7).
+     * - `canScheduleExactAlarms == false` → Ring: a incapacidade de rearmar
+     *   converte a decisão ANTES da supressão — suprimir sem rearme seria um
+     *   alarme perdido em silêncio (pior que tocar durante a reunião).
+     * - Fora de qualquer cluster → Ring.
+     * - Dentro de cluster → suprimir; rearme em fim do cluster + buffer,
+     *   piso fixo `now + FIRE_TIME_REARM_FLOOR_MINUTES` (postpone-only — o
+     *   braço de antecipação da Regra 4 rearmaria no passado e geraria loop
+     *   de disparo imediato). Se o rearme estourar a janela →
+     *   [FireTimeDecision.SuppressAndRollToNextDay].
+     *
+     * Pura — recebe os blocos do dia de [now] por parâmetro; o overload
+     * suspend abaixo faz o fetch para o receiver.
+     */
+    fun decideFireTimeDispatch(
+        now: LocalDateTime,
+        window: ActivityWindow,
+        blocks: List<InactivityBlock>,
+        intervalMode: IntervalMode,
+        canScheduleExactAlarms: Boolean,
+    ): FireTimeDecision {
+        if (intervalMode == IntervalMode.STRICT) return FireTimeDecision.Ring
+        if (!canScheduleExactAlarms) return FireTimeDecision.Ring
+
+        val date = now.toLocalDate()
+
+        // Probe SEM floor: distingue "fora de bloco" (resolved == now → Ring)
+        // de "dentro de bloco" (resolved moveu). Com floor o caso livre
+        // retornaria now+floor e seria lido como supressão falsa.
+        val probe = resolveFirstAlarmForDay(
+            date = date,
+            window = window,
+            blocks = blocks,
+            intervalMode = IntervalMode.DYNAMIC,
+            candidate = now,
+        )
+
+        return when (probe) {
+            is FirstAlarmResolution.Resolved -> {
+                if (probe.dateTime == now) return FireTimeDecision.Ring
+
+                // Dentro de cluster — recomputa com o piso fixo aplicado.
+                val floored = resolveFirstAlarmForDay(
+                    date = date,
+                    window = window,
+                    blocks = blocks,
+                    intervalMode = IntervalMode.DYNAMIC,
+                    candidate = now,
+                    floor = now.plusMinutes(FIRE_TIME_REARM_FLOOR_MINUTES),
+                )
+                when (floored) {
+                    is FirstAlarmResolution.Resolved ->
+                        FireTimeDecision.SuppressAndReschedule(floored.dateTime)
+                    FirstAlarmResolution.OverflowsWindowEnd ->
+                        FireTimeDecision.SuppressAndRollToNextDay
+                }
+            }
+            FirstAlarmResolution.OverflowsWindowEnd -> FireTimeDecision.SuppressAndRollToNextDay
+        }
+    }
+
+    /**
+     * Overload suspend de [decideFireTimeDispatch]: busca os blocos do dia
+     * de [now] (manual + Calendar, em paralelo) e delega à decisão pura.
+     * Caller: AlarmReceiver, dentro do sub-budget do guard.
+     */
+    suspend fun decideFireTimeDispatch(
+        now: LocalDateTime,
+        window: ActivityWindow,
+        intervalMode: IntervalMode,
+        canScheduleExactAlarms: Boolean,
+    ): FireTimeDecision {
+        val date = now.toLocalDate()
+        val blocks = coroutineScope {
+            val manualDef = async { inactivityBlockRepository.getBlocksActiveOn(date) }
+            val calendarDef = async { calendarEventRepository.getBlocksOn(date) }
+            manualDef.await() + calendarDef.await()
+        }
+        return decideFireTimeDispatch(
+            now = now,
+            window = window,
+            blocks = blocks,
+            intervalMode = intervalMode,
+            canScheduleExactAlarms = canScheduleExactAlarms,
+        )
     }
 
     /**

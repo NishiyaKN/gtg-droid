@@ -15,19 +15,23 @@ import androidx.core.app.NotificationManagerCompat
 import com.gtg.app.GtgApplication
 import com.gtg.app.R
 import com.gtg.app.data.local.SessionPreferences
+import com.gtg.app.domain.model.ActivityWindow
 import com.gtg.app.domain.repository.ActivityWindowRepository
 import com.gtg.app.domain.scheduler.AlarmScheduler
 import com.gtg.app.domain.usecase.DynamicSchedulerUseCase
 import com.gtg.app.domain.usecase.isInsideActiveWindow
 import com.gtg.app.domain.usecase.rescheduleForNextDay
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDateTime
+import java.time.ZoneId
 import javax.inject.Inject
 
 /**
@@ -49,14 +53,19 @@ import javax.inject.Inject
  * de notify, ver `docs/solutions/logic-errors/alarm-receiver-overshoot-schedule-race-2026-05-19.md`):
  * 1. Lê [ActivityWindow] (suspend).
  * 2. Out-of-window? → [rescheduleForNextDay] e retorna sem tocar.
- * 3. Em-window: [SessionPreferences.recordAlarmDispatchedNow] (atomic — marca
- *    `isAlarmPending=true` e escreve `firstAlarmInChainMillis=now` se for o
- *    primeiro disparo da cadeia).
+ * 3. Block guard fire-time (fix 2026-06-11): `now` dentro de bloco
+ *    (manual/Calendar)? → suprime e rearma, sub-budget de 2s com fail-open
+ *    para Ring. Seguro ANTES do scheduleOvershoot: a race do invariant exige
+ *    notificação visível, que ainda não existe aqui.
  * 4. Valida que `now + overshootRepeatMinutes ≤ today.atTime(window.endTime)` —
  *    se passaria, NÃO agenda próximo overshoot (cadeia para sozinha).
  * 5. [AlarmScheduler.scheduleOvershoot] (race-safe gate).
  * 6. [NotificationManagerCompat.notify] (Full-Screen Intent → [AlarmActivity]).
- * 7. [AlarmSoundPlayer.play] + [VibrationPlayer.start] (modalidades).
+ * 7. [SessionPreferences.recordAlarmDispatchedNow] (atomic — marca
+ *    `isAlarmPending=true` e escreve `firstAlarmInChainMillis=now` se for o
+ *    primeiro disparo da cadeia; após notify para evitar partial-state se o
+ *    budget expirar entre o write e o notify).
+ * 8. [AlarmSoundPlayer.play] + [VibrationPlayer.start] (modalidades).
  *
  * O canal de notificação é criado em [GtgApplication.onCreate] com IMPORTANCE_HIGH,
  * som de alarme e bypass DND. NÃO criar canal aqui — duplicação causa inconsistências.
@@ -85,6 +94,14 @@ class AlarmReceiver : BroadcastReceiver() {
         /** WakeLock cobre o budget + folga; menor que 60s pra evitar drain
          * com PendingResult já morto. */
         private const val WAKELOCK_TIMEOUT_MILLIS = 15_000L
+
+        /**
+         * Sub-budget do guard fire-time de blocos (fix 2026-06-11), bem menor
+         * que [SUSPEND_BUDGET_MILLIS]: se a consulta ao CalendarProvider
+         * estiver lenta (pós-doze), o guard degrada para Ring (fail-open) em
+         * vez de estourar o budget compartilhado e perder o alarme inteiro.
+         */
+        private const val BLOCK_GUARD_BUDGET_MILLIS = 2_000L
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -120,6 +137,7 @@ class AlarmReceiver : BroadcastReceiver() {
                         exerciseId = exerciseId,
                         exerciseName = exerciseName,
                         targetReps = targetReps,
+                        isOvershoot = isOvershoot,
                     )
                 }
             } catch (e: TimeoutCancellationException) {
@@ -138,6 +156,7 @@ class AlarmReceiver : BroadcastReceiver() {
         exerciseId: Long,
         exerciseName: String,
         targetReps: Int,
+        isOvershoot: Boolean,
     ) {
         val now = LocalDateTime.now()
         val window = activityWindowRepository.getActiveWindow()
@@ -145,20 +164,81 @@ class AlarmReceiver : BroadcastReceiver() {
         // Fora da janela? Empurra cadeia para o próximo dia ativo e não toca
         // nem agenda overshoot. Espelha clampSnoozeToBounds do AlarmViewModel.
         if (window != null && now > now.toLocalDate().atTime(window.endTime)) {
-            // Reagenda preservando exercício pending — usa o do sessionPrefs em vez
-            // dos extras do intent porque o intent pode ser de um overshoot stale
-            // cujos extras não refletem o estado atual da rotação.
-            rescheduleForNextDay(
-                alarmScheduler = alarmScheduler,
-                sessionPrefs = sessionPrefs,
-                window = window,
-                activeDays = sessionPrefs.activeDaysOfWeek,
-                pendingExerciseId = sessionPrefs.pendingExerciseId.takeIf { it > 0L } ?: exerciseId,
-                pendingExerciseName = sessionPrefs.pendingExerciseName.takeIf { it.isNotBlank() } ?: exerciseName,
-                pendingTargetReps = sessionPrefs.pendingTargetReps.takeIf { it > 0 } ?: targetReps,
-                dynamicScheduler = dynamicScheduler,
-            )
+            rollChainToNextDay(window, exerciseId, exerciseName, targetReps)
             return
+        }
+
+        // Guard fire-time de blocos (fix 2026-06-11): eventos de calendário
+        // criados/movidos APÓS o arme nunca passaram pelo schedule-site —
+        // re-valida aqui. Sub-budget próprio com fail-open para Ring: o guard
+        // falhando ou estourando NUNCA pode custar o alarme (perda silenciosa
+        // é pior que tocar durante a reunião).
+        //
+        // Posição: DEPOIS do guard de janela, ANTES de scheduleOvershoot/
+        // notify. A race que o invariant "overshoot antes de notify" protege
+        // exige uma notificação visível para o usuário tocar Check/Snooze —
+        // que ainda não existe neste ponto. Ver doc do invariant (amendada).
+        if (window != null) {
+            val decision = try {
+                withTimeoutOrNull(BLOCK_GUARD_BUDGET_MILLIS) {
+                    dynamicScheduler.decideFireTimeDispatch(
+                        now = now,
+                        window = window,
+                        intervalMode = sessionPrefs.intervalMode,
+                        canScheduleExactAlarms = alarmScheduler.canScheduleExactAlarms(),
+                    )
+                } ?: DynamicSchedulerUseCase.FireTimeDecision.Ring.also {
+                    Log.w(TAG, "block guard estourou ${BLOCK_GUARD_BUDGET_MILLIS}ms — fail-open (Ring)")
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "block guard falhou — fail-open (Ring)", e)
+                DynamicSchedulerUseCase.FireTimeDecision.Ring
+            }
+
+            when (decision) {
+                DynamicSchedulerUseCase.FireTimeDecision.Ring -> Unit // segue fluxo normal
+
+                is DynamicSchedulerUseCase.FireTimeDecision.SuppressAndReschedule -> {
+                    if (isOvershoot) {
+                        // Re-alerta dentro de reunião: silencia e re-arma o
+                        // overshoot para depois do cluster, SEM tocar prefs —
+                        // setNextAlarm flips isAlarmPending e evaporaria o set
+                        // pendente do usuário; o anchor da cadeia (T0) também
+                        // precisa sobreviver. rearmAt é same-day/in-window por
+                        // construção da decisão.
+                        if (sessionPrefs.overshootRepeatEnabled && sessionPrefs.isSessionActive) {
+                            alarmScheduler.scheduleOvershoot(
+                                triggerAt = decision.rearmAt,
+                                exerciseId = exerciseId,
+                                exerciseName = exerciseName,
+                                targetReps = targetReps,
+                            )
+                        }
+                    } else {
+                        suppressPrimaryAndReschedule(
+                            rearmAt = decision.rearmAt,
+                            fallbackExerciseId = exerciseId,
+                            fallbackExerciseName = exerciseName,
+                            fallbackTargetReps = targetReps,
+                        )
+                    }
+                    return
+                }
+
+                DynamicSchedulerUseCase.FireTimeDecision.SuppressAndRollToNextDay -> {
+                    if (!isOvershoot) {
+                        // Cluster estoura a janela do dia → mesmo tratamento do
+                        // guard de fim de janela: rolar para o próximo dia ativo.
+                        rollChainToNextDay(window, exerciseId, exerciseName, targetReps)
+                    }
+                    // Overshoot: cadeia estanca em silêncio — idêntico ao
+                    // comportamento existente quando o próximo overshoot
+                    // cairia após o fim da janela.
+                    return
+                }
+            }
         }
 
         // Build da notificação (sem disparar ainda — race invariant exige
@@ -259,5 +339,85 @@ class AlarmReceiver : BroadcastReceiver() {
         if (sessionPrefs.vibrationEnabled) {
             VibrationPlayer.start(context, bypassDnd = sessionPrefs.bypassDnd)
         }
+    }
+
+    /**
+     * Rola a cadeia para o próximo dia ativo, preservando o exercício pending.
+     *
+     * Pending vem do sessionPrefs com fallback nos extras do intent — o
+     * intent pode ser de um overshoot stale cujos extras não refletem o
+     * estado atual da rotação. Compartilhado entre o guard de fim de janela
+     * e o block guard ([DynamicSchedulerUseCase.FireTimeDecision.SuppressAndRollToNextDay]).
+     */
+    private suspend fun rollChainToNextDay(
+        window: ActivityWindow,
+        fallbackExerciseId: Long,
+        fallbackExerciseName: String,
+        fallbackTargetReps: Int,
+    ) {
+        rescheduleForNextDay(
+            alarmScheduler = alarmScheduler,
+            sessionPrefs = sessionPrefs,
+            window = window,
+            activeDays = sessionPrefs.activeDaysOfWeek,
+            pendingExerciseId = sessionPrefs.pendingExerciseId.takeIf { it > 0L } ?: fallbackExerciseId,
+            pendingExerciseName = sessionPrefs.pendingExerciseName.takeIf { it.isNotBlank() } ?: fallbackExerciseName,
+            pendingTargetReps = sessionPrefs.pendingTargetReps.takeIf { it > 0 } ?: fallbackTargetReps,
+            dynamicScheduler = dynamicScheduler,
+        )
+    }
+
+    /**
+     * Supressão de um disparo PRIMARY dentro de bloco: rearma para [rearmAt]
+     * e atualiza apenas o estado de agendamento.
+     *
+     * Matriz de side-effects (fix 2026-06-11):
+     * - `setNextAlarm` SIM — estado de agendamento, qualquer writer pode.
+     * - `setLastCheck` NUNCA — âncora de cadência, exclusiva de Checks reais.
+     * - `recordAlarmDispatchedNow` NÃO — nenhum toque aconteceu.
+     * - `setFirstAlarmInChain` NÃO — postponement same-day preserva o T0 da
+     *   cadeia em andamento (diferente do rollover cross-day, que zera).
+     * - `canScheduleExactAlarms` já foi validado na decisão (false → Ring).
+     *
+     * Pending vem do sessionPrefs com fallback nos extras do intent — mesmo
+     * precedente do guard de fim de janela (extras de overshoot stale não
+     * refletem a rotação atual).
+     */
+    private fun suppressPrimaryAndReschedule(
+        rearmAt: LocalDateTime,
+        fallbackExerciseId: Long,
+        fallbackExerciseName: String,
+        fallbackTargetReps: Int,
+    ) {
+        val pendingId = sessionPrefs.pendingExerciseId.takeIf { it > 0L } ?: fallbackExerciseId
+        val pendingName = sessionPrefs.pendingExerciseName.takeIf { it.isNotBlank() } ?: fallbackExerciseName
+        val pendingReps = sessionPrefs.pendingTargetReps.takeIf { it > 0 } ?: fallbackTargetReps
+
+        val rearmMillis = rearmAt
+            .atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+
+        alarmScheduler.cancel()
+        alarmScheduler.cancelOvershoot()
+        alarmScheduler.schedule(
+            triggerAt = rearmAt,
+            exerciseId = pendingId,
+            exerciseName = pendingName,
+            targetReps = pendingReps,
+        )
+
+        sessionPrefs.setNextAlarm(
+            epochMillis = rearmMillis,
+            exerciseId = pendingId,
+            exerciseName = pendingName,
+            targetReps = pendingReps,
+        )
+
+        Log.i(
+            TAG,
+            "disparo suprimido por bloco às $rearmAt — alarme rearmado " +
+                "(evento de calendário cobrindo o momento do toque)",
+        )
     }
 }

@@ -163,6 +163,35 @@ verifyOrder {
 }
 ```
 
+## Amendment (2026-06-11): block guard fire-time roda ANTES do scheduleOvershoot
+
+O fix window-start-calendar-block introduziu um guard de blocos no
+`handleDispatch`: antes de construir a notificação, o receiver consulta os
+blocos do dia (manual + Calendar, sub-budget de 2s com fail-open para Ring)
+e pode **suprimir** o disparo — sem notify, sem overshoot, sem som — rearmando
+o alarme para o fim do cluster + buffer.
+
+À primeira leitura isso parece violar a regra "resources antes do gate",
+porque introduz I/O suspenso (Room + CalendarProvider) antes do
+`scheduleOvershoot`. Não viola — a invariante protege contra um race que
+**exige a notificação visível**: o usuário só pode tocar Check/Snooze (e a
+`AlarmActivity` só pode chamar `cancelOvershoot`) depois do `notify()`. No
+ponto do guard, nenhuma notificação existe ainda, então não há fluxo
+concorrente para competir com o `AlarmManager`. A regra correta, refinada:
+
+```text
+[window guard / block guard — pode retornar sem tocar; nenhum gate aberto]
+alarmScheduler.scheduleOvershoot(...)   // resource — imediatamente antes do gate
+NotificationManagerCompat.notify(...)   // gate: separa fluxos
+sessionPrefs.recordAlarmDispatchedNow() // estado visível pós-gate
+AlarmSoundPlayer.play(...)              // I/O auxiliar por último
+```
+
+O que continua proibido: inserir I/O bloqueante **entre** `scheduleOvershoot`
+e `notify`, ou mover o `scheduleOvershoot` para depois do `notify`. O guard
+fica inteiro ANTES do par resource+gate, nunca no meio. Quem for mexer no
+`handleDispatch` deve preservar esse sanduíche.
+
 ## Related Issues
 
 - Doc relacionado: `docs/solutions/logic-errors/active-days-alarm-bypass-2026-05-16.md` — família de bugs do pipeline AlarmManager. Bug E (5º writer) foi encontrado na mesma sessão de code review.

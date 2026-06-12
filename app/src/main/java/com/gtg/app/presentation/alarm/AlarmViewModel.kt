@@ -140,6 +140,14 @@ class AlarmViewModel @Inject constructor(
      * o `rescheduleFromAnchor` se o usuário mudar `baseInterval` durante o
      * intervalo de snooze. Trade-off: mid-snooze interval change pode
      * clobber o snooze, o que é menos pior do que contaminar a cadência futura.
+     *
+     * **Interação com o block guard fire-time (fix 2026-06-11):** o snooze
+     * same-day NÃO valida blocos no agendamento (pedido explícito do usuário),
+     * mas se o disparo cair dentro de um bloco DYNAMIC (ex.: reunião criada
+     * depois do snooze), o guard do [AlarmReceiver] suprime e adia para o fim
+     * do cluster + buffer — um snooze de 5min pode virar mais. Decisão
+     * deliberada: coerente com a filosofia "DYNAMIC nunca toca dentro de
+     * bloco"; STRICT não é afetado.
      */
     fun performSnooze() {
         viewModelScope.launch {
