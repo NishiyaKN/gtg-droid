@@ -156,8 +156,15 @@ class DynamicSchedulerUseCase @Inject constructor(
         // ScheduledTomorrow) carrega horário mid-window JÁ resolvido pela Regra 4
         // com os blocos da data correta e NÃO pode ser reescrito — re-resolver do
         // início da janela o anteciparia, podendo violar o descanso mínimo.
+        // Acoplamento reverso: ver KDoc de scheduleForNextActiveDay — os dois
+        // lados deste gate precisam mudar juntos.
+        //
         // Quando o fall-through coincide exatamente com o início da janela, a
-        // Regra 4 já o liberou contra os blocos do dia → re-resolução idempotente.
+        // re-resolução NÃO é estritamente idempotente: a Regra 4 valida contra
+        // blocos CRUS, o resolver contra clusters MESCLADOS (gap ≤ buffer) —
+        // um início de janela num gap sub-buffer aprovado pela Regra 4 pode ser
+        // adiado para o fim do cluster. Postpone-only e coerente com a política
+        // de blocos; aceito por design.
         if (result.dateTime.toLocalTime() != deps.window.startTime) return result
 
         val resolved = resolveFirstAlarmStartingAt(

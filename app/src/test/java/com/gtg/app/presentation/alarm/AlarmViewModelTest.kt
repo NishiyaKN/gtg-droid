@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.core.app.NotificationManagerCompat
 import androidx.lifecycle.SavedStateHandle
 import com.gtg.app.MainDispatcherRule
+import com.gtg.app.data.local.IntervalMode
 import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.domain.model.ActivityWindow
 import com.gtg.app.domain.model.Exercise
@@ -386,6 +387,39 @@ class AlarmViewModelTest {
                 startDate = any(),
                 activeDaysOfWeek = any(),
                 intervalMode = any(),
+                prefetchedWindow = window,
+            )
+        }
+    }
+
+    @Test
+    fun `performSnooze rollover STRICT mantem inicio bare da janela`() = runTest {
+        // STRICT atravessa o rollover sem validação de blocos (AE7): o modo
+        // chega ao resolver, que devolve o início bare sem consultar nada.
+        every { sessionPrefs.intervalMode } returns IntervalMode.STRICT
+        val now = LocalDateTime.now()
+        val endTime = now.plusMinutes(2).toLocalTime() // janela acaba antes do snooze
+        val window = ActivityWindow(
+            id = 1L,
+            startTime = LocalTime.of(8, 0),
+            endTime = endTime,
+        )
+        coEvery { activityWindowRepository.getActiveWindow() } returns window
+        val captured = slot<LocalDateTime>()
+        val vm = buildViewModel()
+
+        vm.performSnooze()
+        advanceUntilIdle()
+
+        verify(exactly = 1) {
+            alarmScheduler.schedule(triggerAt = capture(captured), any(), any(), any())
+        }
+        assertEquals(LocalTime.of(8, 0), captured.captured.toLocalTime())
+        coVerify(exactly = 1) {
+            dynamicScheduler.resolveFirstAlarmStartingAt(
+                startDate = any(),
+                activeDaysOfWeek = any(),
+                intervalMode = IntervalMode.STRICT,
                 prefetchedWindow = window,
             )
         }

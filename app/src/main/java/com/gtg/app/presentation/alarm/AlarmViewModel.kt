@@ -133,8 +133,8 @@ class AlarmViewModel @Inject constructor(
      * disparar em dia desativado) e [ActivityWindow.endTime] (snooze não pode
      * cair após o fim da janela do dia). Se algum dos dois falhar, snooze faz
      * rollover para o início da janela do próximo dia ativo, paralelo ao que
-     * [com.gtg.app.presentation.home.HomeViewModel.rescheduleForNextDayKeepingExercise]
-     * faz quando alarme vence fora da janela.
+     * [com.gtg.app.domain.usecase.rescheduleForNextDay] (RotationHelpers) faz
+     * quando alarme vence fora da janela.
      *
      * NÃO grava `lastCheckMillis`: gravar âncora falsa no snooze corrompe
      * o `rescheduleFromAnchor` se o usuário mudar `baseInterval` durante o

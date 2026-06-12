@@ -447,7 +447,7 @@ class DynamicSchedulerUseCaseTest {
         // Quarta bloqueada inteira; quinta tem evento cobrindo o início →
         // resultado é quinta 09:45, não quinta 09:30.
         val thursday = wednesday.plusDays(1)
-        val (scheduler, _, _) = stubbedUseCase(
+        val (scheduler, _, calendarRepo) = stubbedUseCase(
             blocksByDate = mapOf(
                 wednesday to listOf(lunchBlock(LocalTime.of(9, 0), LocalTime.of(18, 30))),
                 thursday to listOf(
@@ -462,6 +462,11 @@ class DynamicSchedulerUseCaseTest {
         )
 
         assertEquals(thursday.atTime(9, 45), result)
+        // Bounds do batch: range cobre exatamente as 7 datas candidatas
+        // (qua 20 → qui 28, pulando o fim de semana), em UMA query.
+        coVerify(exactly = 1) {
+            calendarRepo.getBlocksInRange(wednesday, LocalDate.of(2026, 5, 28))
+        }
     }
 
     @Test
@@ -671,6 +676,63 @@ class DynamicSchedulerUseCaseTest {
         )
 
         assertEquals(DynamicSchedulerUseCase.FireTimeDecision.SuppressAndRollToNextDay, decision)
+    }
+
+    @Test
+    fun `fireTime suspend STRICT retorna Ring sem buscar blocos`() = runTest {
+        // Early-return ANTES do fetch: usuário STRICT não paga query
+        // cross-process descartada a cada disparo.
+        val (scheduler, manualRepo, calendarRepo) = stubbedUseCase(
+            recurrentBlocks = listOf(fullDayDailyBlock),
+        )
+
+        val decision = scheduler.decideFireTimeDispatch(
+            now = wednesday.atTime(9, 30),
+            window = windowNineThirty,
+            intervalMode = IntervalMode.STRICT,
+            canScheduleExactAlarms = true,
+        )
+
+        assertEquals(DynamicSchedulerUseCase.FireTimeDecision.Ring, decision)
+        coVerify(exactly = 0) { manualRepo.getBlocksActiveOn(any()) }
+        coVerify(exactly = 0) { calendarRepo.getBlocksOn(any()) }
+    }
+
+    @Test
+    fun `fireTime suspend sem exact alarm retorna Ring sem buscar blocos`() = runTest {
+        val (scheduler, manualRepo, calendarRepo) = stubbedUseCase(
+            recurrentBlocks = listOf(fullDayDailyBlock),
+        )
+
+        val decision = scheduler.decideFireTimeDispatch(
+            now = wednesday.atTime(9, 30),
+            window = windowNineThirty,
+            intervalMode = IntervalMode.DYNAMIC,
+            canScheduleExactAlarms = false,
+        )
+
+        assertEquals(DynamicSchedulerUseCase.FireTimeDecision.Ring, decision)
+        coVerify(exactly = 0) { manualRepo.getBlocksActiveOn(any()) }
+        coVerify(exactly = 0) { calendarRepo.getBlocksOn(any()) }
+    }
+
+    @Test
+    fun `fireTime suspend com falha de fetch retorna Ring fail-open`() = runTest {
+        // Guard falhando nunca pode custar o alarme: fetch lança → Ring.
+        mockkStatic(Log::class)
+        every { Log.w(any(), any<String>(), any()) } returns 0
+
+        val (scheduler, manualRepo, _) = stubbedUseCase()
+        coEvery { manualRepo.getBlocksActiveOn(any()) } throws RuntimeException("Room indisponível")
+
+        val decision = scheduler.decideFireTimeDispatch(
+            now = wednesday.atTime(9, 30),
+            window = windowNineThirty,
+            intervalMode = IntervalMode.DYNAMIC,
+            canScheduleExactAlarms = true,
+        )
+
+        assertEquals(DynamicSchedulerUseCase.FireTimeDecision.Ring, decision)
     }
 
     @Test

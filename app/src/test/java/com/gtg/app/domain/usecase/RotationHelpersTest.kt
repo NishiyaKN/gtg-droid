@@ -198,8 +198,6 @@ class RotationHelpersTest {
             pendingTargetReps = 10,
         )
 
-        verify(exactly = 1) { alarmScheduler.cancel() }
-        verify(exactly = 1) { alarmScheduler.cancelOvershoot() }
         verify(exactly = 1) {
             alarmScheduler.schedule(
                 triggerAt = rearmAt,
@@ -208,8 +206,13 @@ class RotationHelpersTest {
                 targetReps = 10,
             )
         }
-        // Ordem schedule → persist (AlarmSchedulerImpl engole SecurityException).
+        // Sequência completa pinada: cancela ambos os alarmes ANTES de
+        // rearmar, e schedule ANTES de persistir (AlarmSchedulerImpl engole
+        // SecurityException — persistir primeiro deixaria prefs apontando
+        // para alarme inexistente).
         verifyOrder {
+            alarmScheduler.cancel()
+            alarmScheduler.cancelOvershoot()
             alarmScheduler.schedule(any(), any(), any(), any())
             sessionPrefs.setNextAlarm(any(), any(), any(), any())
         }
