@@ -175,9 +175,17 @@ o alarme para o fim do cluster + buffer.
 porque introduz I/O suspenso (Room + CalendarProvider) antes do
 `scheduleOvershoot`. Não viola — a invariante protege contra um race que
 **exige a notificação visível**: o usuário só pode tocar Check/Snooze (e a
-`AlarmActivity` só pode chamar `cancelOvershoot`) depois do `notify()`. No
-ponto do guard, nenhuma notificação existe ainda, então não há fluxo
-concorrente para competir com o `AlarmManager`. A regra correta, refinada:
+`AlarmActivity` só pode chamar `cancelOvershoot`) depois do `notify()`.
+
+O argumento "nenhuma notificação existe ainda" vale integralmente para
+**disparos primary** — DESTE dispatch nada foi publicado. Para **disparos de
+overshoot**, a notificação do primary anterior pode já estar visível e a
+`AlarmActivity` pode estar aberta — o guard alarga a janela entre o disparo
+e o `scheduleOvershoot` deste dispatch em até 2s. A mitigação é o gate em
+`isAlarmPending` no caminho de supressão do overshoot: qualquer Check/Snooze
+/dismiss concorrente zera o flag (e cancela o overshoot) ANTES do re-arme, e
+um overshoot fantasma já in-flight no momento do cancel não rearma. A regra
+correta, refinada:
 
 ```text
 [window guard / block guard — pode retornar sem tocar; nenhum gate aberto]

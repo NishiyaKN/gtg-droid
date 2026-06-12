@@ -80,16 +80,18 @@ fun isInsideActiveWindow(
 private const val ROTATION_HELPERS_TAG = "RotationHelpers"
 
 /**
- * Budget para a resolução de blocos dentro de [rescheduleForNextDay].
+ * Budget para a resolução de blocos em caminhos de rearme
+ * ([rescheduleForNextDay] e o rollover de snooze do AlarmViewModel).
  *
  * O caller mais sensível é o [com.gtg.app.presentation.alarm.AlarmReceiver],
  * cujo goAsync inteiro vive sob `withTimeout(9s)` — se o lookahead de blocos
  * (Room + CalendarProvider, até 7 dias) estourasse o budget compartilhado, o
  * alarme disparado seria consumido sem NADA ser rearmado (perda silenciosa).
- * Sub-budget próprio + fallback bare garantem que o caminho de rollover
- * sempre arma alguma coisa.
+ * Sub-budget próprio + fallback bare garantem que esses caminhos sempre
+ * armam alguma coisa. A composição com os demais budgets do receiver é
+ * pinada por teste em RotationHelpersTest.
  */
-private const val FIRST_ALARM_RESOLUTION_BUDGET_MILLIS = 3_000L
+internal const val FIRST_ALARM_RESOLUTION_BUDGET_MILLIS = 3_000L
 
 /**
  * Empurra a cadeia ativa para o início da janela do próximo dia ativo,
@@ -207,8 +209,11 @@ suspend fun rescheduleForNextDay(
  *   cadeia em andamento (diferente do rollover cross-day, que zera).
  * - `recordAlarmDispatchedNow` NÃO é chamado — nenhum toque aconteceu
  *   (responsabilidade do caller, que simplesmente não toca).
- * - `canScheduleExactAlarms` já foi validado na decisão (false → Ring),
- *   então aqui não há precondition.
+ * - `canScheduleExactAlarms` é re-validado AQUI além da decisão: a janela
+ *   entre decisão e aplicação (até 2s de guard) é estreita mas real — sem o
+ *   guard de aplicação, uma revogação nesse intervalo faria `schedule()`
+ *   engolir SecurityException e `setNextAlarm` persistir um ponteiro para
+ *   alarme fantasma.
  * - Ordem `schedule → setNextAlarm` preservada (AlarmSchedulerImpl engole
  *   SecurityException).
  */
@@ -220,6 +225,18 @@ fun suppressPrimaryInsideBlock(
     pendingExerciseName: String,
     pendingTargetReps: Int,
 ) {
+    if (!alarmScheduler.canScheduleExactAlarms()) {
+        Log.w(
+            ROTATION_HELPERS_TAG,
+            "suppressPrimaryInsideBlock aborted — SCHEDULE_EXACT_ALARM revogado entre decisão e aplicação",
+        )
+        // Sem rearme possível: cancela overshoot residual e NÃO persiste
+        // nada — prefs continuam apontando para o disparo já consumido (no
+        // passado), estado que o usuário recupera ao abrir o app.
+        alarmScheduler.cancelOvershoot()
+        return
+    }
+
     val rearmMillis = rearmAt
         .atZone(ZoneId.systemDefault())
         .toInstant()

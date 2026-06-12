@@ -90,7 +90,7 @@ class AlarmReceiver : BroadcastReceiver() {
         const val NOTIFICATION_ID = 7001
 
         /** Budget para query Room + agendamento + I/O dentro do goAsync. */
-        private const val SUSPEND_BUDGET_MILLIS = 9_000L
+        internal const val SUSPEND_BUDGET_MILLIS = 9_000L
         /** WakeLock cobre o budget + folga; menor que 60s pra evitar drain
          * com PendingResult já morto. */
         private const val WAKELOCK_TIMEOUT_MILLIS = 15_000L
@@ -100,8 +100,13 @@ class AlarmReceiver : BroadcastReceiver() {
          * que [SUSPEND_BUDGET_MILLIS]: se a consulta ao CalendarProvider
          * estiver lenta (pós-doze), o guard degrada para Ring (fail-open) em
          * vez de estourar o budget compartilhado e perder o alarme inteiro.
+         *
+         * Composição: no pior caso o dispatch encadeia leitura da window +
+         * este guard (2s) + a resolução do rollover (3s) antes da cauda de
+         * agendamento — a soma dos sub-budgets precisa caber folgada nos 9s
+         * externos. Invariante pinada por teste em RotationHelpersTest.
          */
-        private const val BLOCK_GUARD_BUDGET_MILLIS = 2_000L
+        internal const val BLOCK_GUARD_BUDGET_MILLIS = 2_000L
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -328,7 +333,17 @@ class AlarmReceiver : BroadcastReceiver() {
                     // pendente do usuário; o anchor da cadeia (T0) também
                     // precisa sobreviver. rearmAt é same-day/in-window por
                     // construção da decisão.
-                    if (sessionPrefs.overshootRepeatEnabled && sessionPrefs.isSessionActive) {
+                    //
+                    // Gate em isAlarmPending: overshoot só tem significado
+                    // enquanto há set pendente (Check/Snooze/dismiss zeram o
+                    // flag E cancelam o overshoot). Um overshoot fantasma —
+                    // cancelado mas já in-flight no momento do cancel — não
+                    // pode rearmar aqui, senão dispararia em dupla com o
+                    // primary rearmado pela supressão.
+                    if (sessionPrefs.overshootRepeatEnabled &&
+                        sessionPrefs.isSessionActive &&
+                        sessionPrefs.isAlarmPending
+                    ) {
                         alarmScheduler.scheduleOvershoot(
                             triggerAt = decision.rearmAt,
                             exerciseId = fallbackExerciseId,

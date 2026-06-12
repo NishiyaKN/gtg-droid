@@ -604,6 +604,22 @@ class DynamicSchedulerUseCaseTest {
     }
 
     @Test
+    fun `fireTime em gap sub-buffer entre blocos toca`() {
+        // A engine (Regra 4, blocos crus) pode armar legitimamente num gap
+        // de 3min entre blocos; a supressão decide por bloco CRU, não por
+        // cluster mesclado — suprimir aqui moveria em silêncio um alarme que
+        // a própria engine aprovou.
+        val blocks = listOf(
+            lunchBlock(LocalTime.of(13, 0), LocalTime.of(13, 58)),
+            lunchBlock(LocalTime.of(14, 1), LocalTime.of(15, 0)),
+        )
+
+        val decision = decide(now = wednesday.atTime(13, 59), blocks = blocks)
+
+        assertEquals(DynamicSchedulerUseCase.FireTimeDecision.Ring, decision)
+    }
+
+    @Test
     fun `fireTime back-to-back mesclado rearma apos o cluster inteiro`() {
         // Espelho do teste de mescla gap==buffer no domínio fire-time.
         val blocks = listOf(

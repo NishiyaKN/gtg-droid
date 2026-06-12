@@ -5,6 +5,7 @@ import com.gtg.app.data.local.IntervalMode
 import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.domain.model.ActivityWindow
 import com.gtg.app.domain.scheduler.AlarmScheduler
+import com.gtg.app.presentation.alarm.AlarmReceiver
 import io.mockk.coEvery
 import io.mockk.coVerify
 import io.mockk.every
@@ -18,6 +19,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import java.time.DayOfWeek
@@ -220,5 +222,43 @@ class RotationHelpersTest {
         // da cadeia — diferença deliberada vs rescheduleForNextDay.
         verify(exactly = 0) { sessionPrefs.setLastCheck(any()) }
         verify(exactly = 0) { sessionPrefs.setFirstAlarmInChain(any()) }
+    }
+
+    @Test
+    fun `suppress primary aborta limpo quando exact alarm foi revogado na janela TOCTOU`() = runTest {
+        // Revogação entre a decisão (que checou) e a aplicação: sem rearme
+        // possível, NADA é persistido — senão prefs apontariam para alarme
+        // fantasma (schedule engole SecurityException).
+        every { alarmScheduler.canScheduleExactAlarms() } returns false
+
+        suppressPrimaryInsideBlock(
+            alarmScheduler = alarmScheduler,
+            sessionPrefs = sessionPrefs,
+            rearmAt = LocalDate.now().atTime(9, 45),
+            pendingExerciseId = 1L,
+            pendingExerciseName = "Flexão",
+            pendingTargetReps = 10,
+        )
+
+        verify(exactly = 1) { alarmScheduler.cancelOvershoot() }
+        verify(exactly = 0) { alarmScheduler.schedule(any(), any(), any(), any()) }
+        verify(exactly = 0) { sessionPrefs.setNextAlarm(any(), any(), any(), any()) }
+        verify(exactly = 0) { sessionPrefs.setLastCheck(any()) }
+        verify(exactly = 0) { sessionPrefs.setFirstAlarmInChain(any()) }
+    }
+
+    @Test
+    fun `sub-budgets do receiver compoem dentro do budget externo`() {
+        // Pior caso do dispatch: leitura da window + guard de blocos (2s) +
+        // resolução do rollover (3s) + cauda de agendamento, tudo sob os 9s
+        // do goAsync. A folga (~4s) absorve a window read e a cauda — se um
+        // dos sub-budgets crescer, este teste força a conversa.
+        assertTrue(
+            "BLOCK_GUARD (${AlarmReceiver.BLOCK_GUARD_BUDGET_MILLIS}ms) + " +
+                "FIRST_ALARM_RESOLUTION (${FIRST_ALARM_RESOLUTION_BUDGET_MILLIS}ms) devem " +
+                "caber com folga nos ${AlarmReceiver.SUSPEND_BUDGET_MILLIS}ms externos",
+            AlarmReceiver.BLOCK_GUARD_BUDGET_MILLIS + FIRST_ALARM_RESOLUTION_BUDGET_MILLIS <=
+                AlarmReceiver.SUSPEND_BUDGET_MILLIS - 4_000L,
+        )
     }
 }

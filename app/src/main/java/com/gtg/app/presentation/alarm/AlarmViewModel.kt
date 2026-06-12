@@ -15,6 +15,7 @@ import com.gtg.app.domain.repository.ExerciseLogRepository
 import com.gtg.app.domain.repository.ExerciseRepository
 import com.gtg.app.domain.scheduler.AlarmScheduler
 import com.gtg.app.domain.usecase.DynamicSchedulerUseCase
+import com.gtg.app.domain.usecase.FIRST_ALARM_RESOLUTION_BUDGET_MILLIS
 import com.gtg.app.domain.usecase.findNextActiveDate
 import com.gtg.app.domain.usecase.pickNextExerciseInRotation
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -23,6 +24,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDateTime
 import java.time.ZoneId
 import javax.inject.Inject
@@ -216,12 +218,19 @@ class AlarmViewModel @Inject constructor(
         val nextDate = findNextActiveDate(candidateDate, activeDays)
         if (window == null) return nextDate.atTime(java.time.LocalTime.of(0, 0))
 
-        return dynamicScheduler.resolveFirstAlarmStartingAt(
-            startDate = nextDate,
-            activeDaysOfWeek = activeDays,
-            intervalMode = sessionPrefs.intervalMode,
-            prefetchedWindow = window,
-        ) ?: nextDate.atTime(window.startTime)
+        // Budget + fallback bare: este caminho roda DEPOIS de
+        // dismissActiveAlarmSideEffects (som parado, notificação e overshoot
+        // cancelados) e ANTES de qualquer rearme — uma resolução pendurada ou
+        // cancelada aqui deixaria a sessão sem NADA armado. Mesmo contrato do
+        // rescheduleForNextDay (o resolver não lança; null ⇒ estouro do budget).
+        return withTimeoutOrNull(FIRST_ALARM_RESOLUTION_BUDGET_MILLIS) {
+            dynamicScheduler.resolveFirstAlarmStartingAt(
+                startDate = nextDate,
+                activeDaysOfWeek = activeDays,
+                intervalMode = sessionPrefs.intervalMode,
+                prefetchedWindow = window,
+            )
+        } ?: nextDate.atTime(window.startTime)
     }
 
     /**

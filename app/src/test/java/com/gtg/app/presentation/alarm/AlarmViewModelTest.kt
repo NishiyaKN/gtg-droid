@@ -393,6 +393,36 @@ class AlarmViewModelTest {
     }
 
     @Test
+    fun `performSnooze rollover cai para inicio bare quando a resolucao estoura o budget`() = runTest {
+        // O rollover roda DEPOIS de cancelar som/notificação/overshoot e
+        // ANTES de rearmar — resolução pendurada não pode deixar a sessão
+        // sem nada armado. Budget de 3s + fallback bare (clock virtual).
+        val now = LocalDateTime.now()
+        val endTime = now.plusMinutes(2).toLocalTime() // janela acaba antes do snooze
+        coEvery { activityWindowRepository.getActiveWindow() } returns ActivityWindow(
+            id = 1L,
+            startTime = LocalTime.of(8, 0),
+            endTime = endTime,
+        )
+        coEvery {
+            dynamicScheduler.resolveFirstAlarmStartingAt(any(), any(), any(), any())
+        } coAnswers {
+            kotlinx.coroutines.delay(60_000)
+            firstArg<java.time.LocalDate>().atTime(LocalTime.of(8, 45))
+        }
+        val captured = slot<LocalDateTime>()
+        val vm = buildViewModel()
+
+        vm.performSnooze()
+        advanceUntilIdle()
+
+        verify(exactly = 1) {
+            alarmScheduler.schedule(triggerAt = capture(captured), any(), any(), any())
+        }
+        assertEquals(LocalTime.of(8, 0), captured.captured.toLocalTime())
+    }
+
+    @Test
     fun `performSnooze rollover STRICT mantem inicio bare da janela`() = runTest {
         // STRICT atravessa o rollover sem validação de blocos (AE7): o modo
         // chega ao resolver, que devolve o início bare sem consultar nada.

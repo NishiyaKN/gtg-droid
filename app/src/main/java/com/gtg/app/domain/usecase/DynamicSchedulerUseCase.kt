@@ -586,11 +586,17 @@ class DynamicSchedulerUseCase @Inject constructor(
      * - `canScheduleExactAlarms == false` → Ring: a incapacidade de rearmar
      *   converte a decisão ANTES da supressão — suprimir sem rearme seria um
      *   alarme perdido em silêncio (pior que tocar durante a reunião).
-     * - Fora de qualquer cluster → Ring.
-     * - Dentro de cluster → suprimir; rearme em fim do cluster + buffer,
-     *   piso fixo `now + FIRE_TIME_REARM_FLOOR_MINUTES` (postpone-only — o
-     *   braço de antecipação da Regra 4 rearmaria no passado e geraria loop
-     *   de disparo imediato). Se o rearme estourar a janela →
+     * - Fora de qualquer bloco CRU → Ring. A contenção é decidida contra os
+     *   blocos crus, não contra clusters mesclados: o contrato do produto é
+     *   "DYNAMIC não toca dentro de um BLOCO". A engine (Regra 4) pode armar
+     *   legitimamente num gap livre sub-buffer entre dois blocos — suprimir
+     *   esse disparo via cluster moveria em silêncio um alarme que a própria
+     *   engine aprovou.
+     * - Dentro de bloco cru → suprimir; o rearme usa os clusters MESCLADOS
+     *   (fim do cluster + buffer, piso fixo `now +
+     *   FIRE_TIME_REARM_FLOOR_MINUTES`, postpone-only) — rearmar num gap
+     *   sub-buffer recriaria o ping-pong que a mescla existe para evitar.
+     *   Se o rearme estourar a janela →
      *   [FireTimeDecision.SuppressAndRollToNextDay].
      *
      * Pura — recebe os blocos do dia de [now] por parâmetro; o overload
@@ -606,8 +612,16 @@ class DynamicSchedulerUseCase @Inject constructor(
         if (intervalMode == IntervalMode.STRICT) return FireTimeDecision.Ring
         if (!canScheduleExactAlarms) return FireTimeDecision.Ring
 
+        val date = now.toLocalDate()
+        val insideRawBlock = blocks.any { block ->
+            now >= date.atTime(block.startTime) && now < date.atTime(block.endTime)
+        }
+        if (!insideRawBlock) return FireTimeDecision.Ring
+
+        // Dentro de bloco cru ⇒ dentro do cluster que o contém ⇒ o probe
+        // sempre adia (resolved > now).
         val probe = resolveFirstAlarmForDay(
-            date = now.toLocalDate(),
+            date = date,
             window = window,
             blocks = blocks,
             candidate = now,
@@ -615,17 +629,12 @@ class DynamicSchedulerUseCase @Inject constructor(
 
         return when (probe) {
             is FirstAlarmResolution.Resolved ->
-                if (probe.dateTime == now) {
-                    // Fora de qualquer cluster — o candidato não se moveu.
-                    FireTimeDecision.Ring
-                } else {
-                    // Dentro de cluster. O rearme natural (fim + buffer) já é
-                    // > now por construção; o maxOf materializa o contrato do
-                    // piso fixo contra drift futuro.
-                    FireTimeDecision.SuppressAndReschedule(
-                        maxOf(probe.dateTime, now.plusMinutes(FIRE_TIME_REARM_FLOOR_MINUTES)),
-                    )
-                }
+                // O rearme natural (fim do cluster + buffer) já é > now por
+                // construção; o maxOf materializa o contrato do piso fixo
+                // contra drift futuro.
+                FireTimeDecision.SuppressAndReschedule(
+                    maxOf(probe.dateTime, now.plusMinutes(FIRE_TIME_REARM_FLOOR_MINUTES)),
+                )
             FirstAlarmResolution.OverflowsWindowEnd -> FireTimeDecision.SuppressAndRollToNextDay
         }
     }
