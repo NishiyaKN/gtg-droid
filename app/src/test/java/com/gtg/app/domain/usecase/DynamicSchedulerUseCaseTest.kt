@@ -1,12 +1,24 @@
 package com.gtg.app.domain.usecase
 
+import android.util.Log
 import com.gtg.app.data.local.IntervalMode
 import com.gtg.app.domain.model.ActivityWindow
 import com.gtg.app.domain.model.InactivityBlock
 import com.gtg.app.domain.model.Recurrence
 import com.gtg.app.domain.model.ScheduleResult
+import com.gtg.app.domain.repository.ActivityWindowRepository
+import com.gtg.app.domain.repository.CalendarEventRepository
+import com.gtg.app.domain.repository.InactivityBlockRepository
+import io.mockk.coEvery
+import io.mockk.coVerify
+import io.mockk.every
 import io.mockk.mockk
+import io.mockk.mockkStatic
+import io.mockk.unmockkAll
+import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.DayOfWeek
@@ -216,5 +228,323 @@ class DynamicSchedulerUseCaseTest {
         )
 
         assertEquals(resultDynamic, resultDefault)
+    }
+
+    // ── U1: resolver de primeiro alarme do dia (plano 2026-06-11) ───
+    //
+    // Cenário base do bug reportado: janela começando 09:30, evento de
+    // calendário 09:10–09:40 → o alarme de início de janela deve adiar
+    // para 09:45 (fim do bloco + 5min buffer), nunca tocar às 09:30.
+
+    @After
+    fun tearDown() {
+        unmockkAll()
+    }
+
+    /** Janela do bug reportado: 09:30–18:00. */
+    private val windowNineThirty = ActivityWindow(
+        id = 1L,
+        startTime = LocalTime.of(9, 30),
+        endTime = LocalTime.of(18, 0),
+        isActive = true,
+    )
+
+    private fun resolve(
+        blocks: List<InactivityBlock>,
+        window: ActivityWindow = windowNineThirty,
+        intervalMode: IntervalMode = IntervalMode.DYNAMIC,
+        candidate: LocalDateTime = wednesday.atTime(window.startTime),
+        floor: LocalDateTime? = null,
+    ) = useCase.resolveFirstAlarmForDay(
+        date = wednesday,
+        window = window,
+        blocks = blocks,
+        intervalMode = intervalMode,
+        candidate = candidate,
+        floor = floor,
+    )
+
+    private fun resolved(time: LocalTime) =
+        DynamicSchedulerUseCase.FirstAlarmResolution.Resolved(wednesday.atTime(time))
+
+    @Test
+    fun `resolver com bloco cobrindo inicio da janela adia para fim do bloco mais buffer`() {
+        // Geometria exata do bug: janela 09:30, evento 09:10–09:40 → 09:45.
+        val blocks = listOf(lunchBlock(LocalTime.of(9, 10), LocalTime.of(9, 40)))
+
+        assertEquals(resolved(LocalTime.of(9, 45)), resolve(blocks))
+    }
+
+    @Test
+    fun `resolver sem blocos retorna inicio da janela`() {
+        assertEquals(resolved(LocalTime.of(9, 30)), resolve(emptyList()))
+    }
+
+    @Test
+    fun `resolver com bloco comecando exatamente no inicio da janela adia sem antecipar`() {
+        // Antecipação cairia antes da janela — resolver é postpone-only.
+        val blocks = listOf(lunchBlock(LocalTime.of(9, 30), LocalTime.of(10, 0)))
+
+        assertEquals(resolved(LocalTime.of(10, 5)), resolve(blocks))
+    }
+
+    @Test
+    fun `resolver com bloco terminando exatamente no inicio da janela nao colide`() {
+        // Semântica half-open [start, end): candidato == blockEnd não colide.
+        val blocks = listOf(lunchBlock(LocalTime.of(9, 0), LocalTime.of(9, 30)))
+
+        assertEquals(resolved(LocalTime.of(9, 30)), resolve(blocks))
+    }
+
+    @Test
+    fun `resolver mescla blocos consecutivos sem gap em passada unica`() {
+        // 09:00–10:00 + 10:00–10:30 viram um cluster → 10:35, sem ping-pong.
+        val blocks = listOf(
+            lunchBlock(LocalTime.of(9, 0), LocalTime.of(10, 0)),
+            lunchBlock(LocalTime.of(10, 0), LocalTime.of(10, 30)),
+        )
+
+        assertEquals(resolved(LocalTime.of(10, 35)), resolve(blocks))
+    }
+
+    @Test
+    fun `resolver mescla blocos com gap exatamente igual ao buffer`() {
+        // Fronteira onde implementação "menor que" vs "menor ou igual" diverge:
+        // gap de exatos 5min DEVE mesclar, senão o candidato adiado (10:05)
+        // cai exatamente no início do próximo bloco.
+        val blocks = listOf(
+            lunchBlock(LocalTime.of(9, 0), LocalTime.of(10, 0)),
+            lunchBlock(LocalTime.of(10, 5), LocalTime.of(10, 30)),
+        )
+
+        assertEquals(resolved(LocalTime.of(10, 35)), resolve(blocks))
+    }
+
+    @Test
+    fun `resolver mescla blocos com gap menor que o buffer`() {
+        val blocks = listOf(
+            lunchBlock(LocalTime.of(9, 0), LocalTime.of(10, 0)),
+            lunchBlock(LocalTime.of(10, 3), LocalTime.of(10, 30)),
+        )
+
+        assertEquals(resolved(LocalTime.of(10, 35)), resolve(blocks))
+    }
+
+    @Test
+    fun `resolver nao mescla blocos com gap maior que o buffer`() {
+        // Gap de 6min > buffer: clusters separados; candidato adiado para
+        // 10:05 cai no gap livre e fica lá.
+        val blocks = listOf(
+            lunchBlock(LocalTime.of(9, 0), LocalTime.of(10, 0)),
+            lunchBlock(LocalTime.of(10, 6), LocalTime.of(10, 30)),
+        )
+
+        assertEquals(resolved(LocalTime.of(10, 5)), resolve(blocks))
+    }
+
+    @Test
+    fun `resolver mescla blocos de fontes diferentes manuais e calendar`() {
+        // Sobreposição parcial entre fonte manual e virtual do Calendar —
+        // o resolver recebe a lista concatenada e mescla por intervalo.
+        val blocks = listOf(
+            lunchBlock(LocalTime.of(9, 0), LocalTime.of(9, 35)),
+            lunchBlock(LocalTime.of(9, 33), LocalTime.of(9, 50)).copy(id = -42L),
+        )
+
+        assertEquals(resolved(LocalTime.of(9, 55)), resolve(blocks))
+    }
+
+    @Test
+    fun `resolver com bloco cobrindo janela inteira sinaliza overflow`() {
+        val shortWindow = windowNineThirty.copy(endTime = LocalTime.of(10, 0))
+        val blocks = listOf(lunchBlock(LocalTime.of(9, 0), LocalTime.of(11, 0)))
+
+        val result = resolve(blocks, window = shortWindow)
+
+        assertEquals(DynamicSchedulerUseCase.FirstAlarmResolution.OverflowsWindowEnd, result)
+    }
+
+    @Test
+    fun `resolver com candidato 5min apos inicio do bloco ainda adia sem antecipar`() {
+        // Caller fire-time: candidato dentro do bloco perto do início. A engine
+        // Rule 4 anteciparia (Caso A); o resolver NUNCA antecipa.
+        val blocks = listOf(lunchBlock(LocalTime.of(10, 0), LocalTime.of(10, 30)))
+
+        val result = resolve(blocks, candidate = wednesday.atTime(10, 5))
+
+        assertEquals(resolved(LocalTime.of(10, 35)), result)
+    }
+
+    @Test
+    fun `resolver com floor acima do fim do cluster usa o floor`() {
+        val blocks = listOf(lunchBlock(LocalTime.of(10, 0), LocalTime.of(10, 30)))
+
+        val result = resolve(
+            blocks,
+            candidate = wednesday.atTime(10, 5),
+            floor = wednesday.atTime(10, 40),
+        )
+
+        assertEquals(resolved(LocalTime.of(10, 40)), result)
+    }
+
+    @Test
+    fun `resolver STRICT retorna inicio da janela mesmo com bloco cobrindo`() {
+        // Contrato AE7: STRICT pode tocar dentro de bloco por design.
+        val blocks = listOf(lunchBlock(LocalTime.of(9, 10), LocalTime.of(9, 40)))
+
+        val result = resolve(blocks, intervalMode = IntervalMode.STRICT)
+
+        assertEquals(resolved(LocalTime.of(9, 30)), result)
+    }
+
+    // ── U1: wrapper suspend com lookahead de dias ───────────────────
+
+    private fun stubbedUseCase(
+        blocksByDate: Map<LocalDate, List<InactivityBlock>> = emptyMap(),
+        recurrentBlocks: List<InactivityBlock> = emptyList(),
+        activeWindow: ActivityWindow? = windowNineThirty,
+    ): Triple<DynamicSchedulerUseCase, InactivityBlockRepository, CalendarEventRepository> {
+        val windowRepo = mockk<ActivityWindowRepository> {
+            coEvery { getActiveWindow() } returns activeWindow
+        }
+        val manualRepo = mockk<InactivityBlockRepository> {
+            coEvery { getBlocksActiveOn(any()) } answers {
+                recurrentBlocks + (blocksByDate[firstArg<LocalDate>()] ?: emptyList())
+            }
+        }
+        val calendarRepo = mockk<CalendarEventRepository> {
+            coEvery { getBlocksOn(any()) } returns emptyList()
+        }
+        return Triple(
+            DynamicSchedulerUseCase(windowRepo, manualRepo, calendarRepo),
+            manualRepo,
+            calendarRepo,
+        )
+    }
+
+    private val fullDayDailyBlock = InactivityBlock(
+        id = 99L,
+        startTime = InactivityBlock.FULL_DAY_START,
+        endTime = InactivityBlock.FULL_DAY_END,
+        recurrence = Recurrence.DAILY,
+    )
+
+    @Test
+    fun `wrapper resolve bloco no inicio da janela do dia pedido`() = runTest {
+        val (scheduler, _, _) = stubbedUseCase(
+            blocksByDate = mapOf(
+                wednesday to listOf(lunchBlock(LocalTime.of(9, 10), LocalTime.of(9, 40))),
+            ),
+        )
+
+        val result = scheduler.resolveFirstAlarmStartingAt(
+            startDate = wednesday,
+            activeDaysOfWeek = weekdays,
+        )
+
+        assertEquals(wednesday.atTime(9, 45), result)
+    }
+
+    @Test
+    fun `wrapper rola para o proximo dia ativo quando o dia inteiro esta bloqueado`() = runTest {
+        // Quarta tomada por bloco que cobre a janela toda → quinta 09:30,
+        // e os blocos DA QUINTA são consultados (fixture: quinta livre).
+        val (scheduler, _, _) = stubbedUseCase(
+            blocksByDate = mapOf(
+                wednesday to listOf(lunchBlock(LocalTime.of(9, 0), LocalTime.of(18, 30))),
+            ),
+        )
+
+        val result = scheduler.resolveFirstAlarmStartingAt(
+            startDate = wednesday,
+            activeDaysOfWeek = weekdays,
+        )
+
+        assertEquals(wednesday.plusDays(1).atTime(9, 30), result)
+    }
+
+    @Test
+    fun `wrapper aplica blocos do dia rolado tambem`() = runTest {
+        // Quarta bloqueada inteira; quinta tem evento cobrindo o início →
+        // resultado é quinta 09:45, não quinta 09:30.
+        val thursday = wednesday.plusDays(1)
+        val (scheduler, _, _) = stubbedUseCase(
+            blocksByDate = mapOf(
+                wednesday to listOf(lunchBlock(LocalTime.of(9, 0), LocalTime.of(18, 30))),
+                thursday to listOf(
+                    lunchBlock(LocalTime.of(9, 10), LocalTime.of(9, 40)).copy(specificDate = thursday),
+                ),
+            ),
+        )
+
+        val result = scheduler.resolveFirstAlarmStartingAt(
+            startDate = wednesday,
+            activeDaysOfWeek = weekdays,
+        )
+
+        assertEquals(thursday.atTime(9, 45), result)
+    }
+
+    @Test
+    fun `wrapper exaure lookahead com bloco diario permanente e cai para inicio bare`() = runTest {
+        // Bloco DAILY 00:00–23:59 em todos os dias: 7 tentativas falham e o
+        // wrapper degrada para o início bare do último dia ativo examinado
+        // (nunca "sem alarme"). Log.w não é mockado pelo harness → stub.
+        mockkStatic(Log::class)
+        every { Log.w(any(), any<String>()) } returns 0
+
+        val (scheduler, _, _) = stubbedUseCase(recurrentBlocks = listOf(fullDayDailyBlock))
+
+        val result = scheduler.resolveFirstAlarmStartingAt(
+            startDate = wednesday,
+            activeDaysOfWeek = weekdays,
+        )
+
+        // Examinados: qua 20, qui 21, sex 22, seg 25, ter 26, qua 27, qui 28.
+        assertEquals(LocalDate.of(2026, 5, 28).atTime(9, 30), result)
+    }
+
+    @Test
+    fun `wrapper STRICT retorna inicio bare sem consultar blocos`() = runTest {
+        val (scheduler, manualRepo, calendarRepo) = stubbedUseCase(
+            recurrentBlocks = listOf(fullDayDailyBlock),
+        )
+
+        val result = scheduler.resolveFirstAlarmStartingAt(
+            startDate = wednesday,
+            activeDaysOfWeek = weekdays,
+            intervalMode = IntervalMode.STRICT,
+        )
+
+        assertEquals(wednesday.atTime(9, 30), result)
+        coVerify(exactly = 0) { manualRepo.getBlocksActiveOn(any()) }
+        coVerify(exactly = 0) { calendarRepo.getBlocksOn(any()) }
+    }
+
+    @Test
+    fun `wrapper normaliza dia inativo para o proximo dia ativo`() = runTest {
+        // Sábado não é dia ativo → resolve para segunda 09:30.
+        val saturday = LocalDate.of(2026, 5, 23)
+        val (scheduler, _, _) = stubbedUseCase()
+
+        val result = scheduler.resolveFirstAlarmStartingAt(
+            startDate = saturday,
+            activeDaysOfWeek = weekdays,
+        )
+
+        assertEquals(LocalDate.of(2026, 5, 25).atTime(9, 30), result)
+    }
+
+    @Test
+    fun `wrapper sem janela configurada retorna null`() = runTest {
+        val (scheduler, _, _) = stubbedUseCase(activeWindow = null)
+
+        val result = scheduler.resolveFirstAlarmStartingAt(
+            startDate = wednesday,
+            activeDaysOfWeek = weekdays,
+        )
+
+        assertNull(result)
     }
 }

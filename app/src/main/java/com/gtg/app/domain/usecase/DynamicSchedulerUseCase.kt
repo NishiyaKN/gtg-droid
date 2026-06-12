@@ -1,5 +1,6 @@
 package com.gtg.app.domain.usecase
 
+import android.util.Log
 import com.gtg.app.data.local.IntervalMode
 import com.gtg.app.domain.model.ActivityWindow
 import com.gtg.app.domain.model.InactivityBlock
@@ -53,6 +54,15 @@ class DynamicSchedulerUseCase @Inject constructor(
 
         /** Limite de iterações para resolver colisões em cascata entre blocos. */
         private const val MAX_COLLISION_ITERATIONS = 10
+
+        /**
+         * Limite de dias examinados pelo lookahead de [resolveFirstAlarmStartingAt].
+         * Espelha o caminhar máximo de [findNextActiveDate]. Na exaustão o
+         * wrapper degrada para início bare de janela — nunca "sem alarme".
+         */
+        const val MAX_FIRST_ALARM_LOOKAHEAD_DAYS = 7
+
+        private const val TAG = "DynamicScheduler"
     }
 
     /**
@@ -312,5 +322,189 @@ class DynamicSchedulerUseCase @Inject constructor(
     ): ScheduleResult.ScheduledTomorrow {
         val nextDate = findNextActiveDate(currentDate, activeDaysOfWeek)
         return ScheduleResult.ScheduledTomorrow(nextDate.atTime(windowStartTime))
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Resolver de primeiro alarme do dia (fix 2026-06-11)
+    //
+    // Bug original: todos os caminhos de rollover armavam o alarme em
+    // window.startTime bare, sem consultar os blocos (manuais + Calendar)
+    // do dia alvo — janela 09:30 com evento 09:10–09:40 tocava às 09:30.
+    // A Regra 4 só protegia candidatos same-day dentro de
+    // [evaluateWithDependencies]; estes helpers estendem a garantia a
+    // qualquer "primeiro alarme do dia X" e a re-validações fire-time.
+    // ─────────────────────────────────────────────────────────────────
+
+    /**
+     * Resultado de [resolveFirstAlarmForDay].
+     */
+    sealed interface FirstAlarmResolution {
+        /** Horário válido encontrado dentro da janela do dia. */
+        data class Resolved(val dateTime: LocalDateTime) : FirstAlarmResolution
+
+        /**
+         * O adiamento empurrou o candidato para além do fim da janela —
+         * o caller deve rolar para o próximo dia ativo e tentar de novo.
+         */
+        data object OverflowsWindowEnd : FirstAlarmResolution
+    }
+
+    /** Intervalo half-open [start, end) de blocos mesclados de um dia. */
+    private data class BlockCluster(val start: LocalTime, val end: LocalTime)
+
+    /**
+     * Resolve um candidato a "primeiro alarme" contra os blocos de [date].
+     *
+     * Diferenças deliberadas vs. a Regra 4 da engine:
+     * - **Postpone-only.** Nunca antecipa: no início de janela a antecipação
+     *   cairia antes da janela por construção, e em chamadas fire-time ela
+     *   poderia cair no passado e gerar loop de disparo imediato.
+     * - **Sem descanso mínimo.** Rollover e fire-time não têm "momento do
+     *   Check" como referência; o conceito da Regra 3 não se aplica.
+     * - **Mescla de clusters.** Blocos com gap ≤ [INACTIVITY_BUFFER_MINUTES]
+     *   são unidos antes da colisão. Consequência: após UM adiamento para
+     *   `fimDoCluster + buffer`, o candidato não pode cair dentro de outro
+     *   bloco (qualquer bloco tão próximo teria sido mesclado) — resolução
+     *   em passada única, sem o ping-pong possível na Regra 4.
+     *
+     * STRICT retorna o [candidate] bare — pode tocar dentro de bloco por
+     * design (contrato AE7 do plano post-testing).
+     *
+     * @param candidate ponto de partida; default = início da janela de [date].
+     * @param floor piso opcional (callers fire-time): o resultado nunca é
+     *   anterior a ele. Aplicado APÓS a colisão; se o floor cair dentro de
+     *   outro cluster, re-adia uma vez.
+     */
+    fun resolveFirstAlarmForDay(
+        date: LocalDate,
+        window: ActivityWindow,
+        blocks: List<InactivityBlock>,
+        intervalMode: IntervalMode = IntervalMode.DYNAMIC,
+        candidate: LocalDateTime = date.atTime(window.startTime),
+        floor: LocalDateTime? = null,
+    ): FirstAlarmResolution {
+        if (intervalMode == IntervalMode.STRICT) {
+            return FirstAlarmResolution.Resolved(candidate)
+        }
+
+        val clusters = mergeBlocksIntoClusters(blocks)
+
+        fun clusterContaining(value: LocalDateTime): BlockCluster? =
+            clusters.firstOrNull { cluster ->
+                value >= date.atTime(cluster.start) && value < date.atTime(cluster.end)
+            }
+
+        var resolved = candidate
+        // Passada única por construção (ver KDoc); o bound extra é apenas
+        // paranoia defensiva contra drift futuro na mescla.
+        var safety = clusters.size + 1
+        while (safety-- > 0) {
+            val containing = clusterContaining(resolved) ?: break
+            resolved = date.atTime(containing.end).plusMinutes(INACTIVITY_BUFFER_MINUTES)
+        }
+
+        if (floor != null && resolved.isBefore(floor)) {
+            resolved = floor
+            // Floor arbitrário pode cair dentro de outro cluster; um único
+            // re-adiamento basta (mesmo argumento da passada única).
+            clusterContaining(resolved)?.let { containing ->
+                resolved = date.atTime(containing.end).plusMinutes(INACTIVITY_BUFFER_MINUTES)
+            }
+        }
+
+        return if (!resolved.isBefore(date.atTime(window.endTime))) {
+            FirstAlarmResolution.OverflowsWindowEnd
+        } else {
+            FirstAlarmResolution.Resolved(resolved)
+        }
+    }
+
+    /**
+     * Wrapper suspend: resolve o primeiro alarme válido a partir de
+     * [startDate], buscando os blocos de cada dia candidato e rolando para
+     * o próximo dia ativo quando o adiamento estoura o fim da janela.
+     *
+     * Garantias:
+     * - [startDate] em dia inativo é normalizado para o próximo dia ativo.
+     * - Lookahead limitado a [MAX_FIRST_ALARM_LOOKAHEAD_DAYS]; na exaustão
+     *   (ex.: bloco DAILY 00:00–23:59 permanente) degrada para o início
+     *   bare do último dia examinado + warn — nunca retorna "sem alarme";
+     *   o guard fire-time é a rede para esse estado.
+     * - STRICT não consulta blocos (Regra 4 desligada por design).
+     *
+     * @param prefetchedWindow evita refetch quando o caller já tem a window
+     *   (ex.: rescheduleForNextDay) — espelha o padrão de pré-busca do cache.
+     * @return horário resolvido, ou `null` se não há janela configurada.
+     */
+    suspend fun resolveFirstAlarmStartingAt(
+        startDate: LocalDate,
+        activeDaysOfWeek: Set<DayOfWeek>,
+        intervalMode: IntervalMode = IntervalMode.DYNAMIC,
+        prefetchedWindow: ActivityWindow? = null,
+    ): LocalDateTime? {
+        val window = prefetchedWindow
+            ?: activityWindowRepository.getActiveWindow()
+            ?: return null
+
+        var date = if (startDate.dayOfWeek in activeDaysOfWeek) {
+            startDate
+        } else {
+            findNextActiveDate(startDate, activeDaysOfWeek)
+        }
+
+        if (intervalMode == IntervalMode.STRICT) {
+            return date.atTime(window.startTime)
+        }
+
+        var lastExamined = date
+        repeat(MAX_FIRST_ALARM_LOOKAHEAD_DAYS) {
+            lastExamined = date
+            val blocks = coroutineScope {
+                val manualDef = async { inactivityBlockRepository.getBlocksActiveOn(date) }
+                val calendarDef = async { calendarEventRepository.getBlocksOn(date) }
+                manualDef.await() + calendarDef.await()
+            }
+            when (val resolution = resolveFirstAlarmForDay(date, window, blocks)) {
+                is FirstAlarmResolution.Resolved -> return resolution.dateTime
+                FirstAlarmResolution.OverflowsWindowEnd ->
+                    date = findNextActiveDate(date, activeDaysOfWeek)
+            }
+        }
+
+        Log.w(
+            TAG,
+            "resolveFirstAlarmStartingAt: lookahead de $MAX_FIRST_ALARM_LOOKAHEAD_DAYS dias " +
+                "exaurido a partir de $startDate — degradando para início bare de $lastExamined",
+        )
+        return lastExamined.atTime(window.startTime)
+    }
+
+    /**
+     * Mescla blocos de um mesmo dia em clusters, unindo blocos cujo gap é
+     * ≤ [INACTIVITY_BUFFER_MINUTES] (além de sobrepostos/contidos).
+     *
+     * Comparação em segundos-do-dia para evitar wrap de [LocalTime] perto
+     * de meia-noite (23:59 + 5min viraria 00:04 e quebraria a ordenação).
+     */
+    private fun mergeBlocksIntoClusters(blocks: List<InactivityBlock>): List<BlockCluster> {
+        if (blocks.isEmpty()) return emptyList()
+
+        val bufferSeconds = INACTIVITY_BUFFER_MINUTES * 60
+        val sorted = blocks.sortedBy { it.startTime }
+        val clusters = mutableListOf<BlockCluster>()
+
+        var start = sorted.first().startTime
+        var end = sorted.first().endTime
+        for (block in sorted.drop(1)) {
+            if (block.startTime.toSecondOfDay() <= end.toSecondOfDay() + bufferSeconds) {
+                end = maxOf(end, block.endTime)
+            } else {
+                clusters += BlockCluster(start, end)
+                start = block.startTime
+                end = block.endTime
+            }
+        }
+        clusters += BlockCluster(start, end)
+        return clusters
     }
 }
