@@ -636,6 +636,23 @@ class DynamicSchedulerUseCaseTest {
     }
 
     @Test
+    fun `fireTime dentro do segundo bloco cru do cluster rearma no fim do cluster inteiro`() {
+        // Pina o split cru-vs-mesclado pelo lado do segundo bloco: a contenção
+        // bate no bloco 10:05–10:30, mas o rearme vem do cluster inteiro.
+        val blocks = listOf(
+            lunchBlock(LocalTime.of(9, 0), LocalTime.of(10, 0)),
+            lunchBlock(LocalTime.of(10, 5), LocalTime.of(10, 30)),
+        )
+
+        val decision = decide(now = wednesday.atTime(10, 15), blocks = blocks)
+
+        assertEquals(
+            DynamicSchedulerUseCase.FireTimeDecision.SuppressAndReschedule(wednesday.atTime(10, 35)),
+            decision,
+        )
+    }
+
+    @Test
     fun `fireTime STRICT dentro de bloco toca`() {
         // Contrato AE7 — STRICT toca dentro de bloco por design.
         val blocks = listOf(lunchBlock(LocalTime.of(9, 10), LocalTime.of(9, 40)))

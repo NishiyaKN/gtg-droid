@@ -143,8 +143,10 @@ suspend fun rescheduleForNextDay(
         // presa em chain mode mostrando counter crescente sem alarme armado.
         // Cancela overshoots residuais (já não vão tocar de qualquer forma sem
         // SCHEDULE_EXACT_ALARM) e zera o anchor. nextAlarmMillis fica stale —
-        // o usuário verá Check disabled (sem cadeia, sem janela) e precisa ir
-        // em Settings re-conceder permissão antes do próximo Start.
+        // a Home pode exibir countdown vencido com Check HABILITADO (canCheck
+        // libera em overdue); um Check manual nesse estado recalcula mas
+        // schedule() engole SecurityException — o usuário precisa re-conceder
+        // a permissão em Settings para que novos agendamentos voltem a valer.
         alarmScheduler.cancelOvershoot()
         sessionPrefs.setFirstAlarmInChain(0L)
         return
@@ -203,7 +205,9 @@ suspend fun rescheduleForNextDay(
  * com o harness existente.
  *
  * Matriz de side-effects:
- * - `setNextAlarm` SIM — estado de agendamento, qualquer writer pode.
+ * - `setNextAlarm` SIM — estado de agendamento, qualquer writer pode
+ *   (caminho normal; NÃO chamado no abort de permissão revogada abaixo —
+ *   sem rearme possível, nada é persistido).
  * - `setLastCheck` NUNCA — âncora de cadência, exclusiva de Checks reais.
  * - `setFirstAlarmInChain` NÃO — postponement same-day preserva o T0 da
  *   cadeia em andamento (diferente do rollover cross-day, que zera).
@@ -216,6 +220,13 @@ suspend fun rescheduleForNextDay(
  *   alarme fantasma.
  * - Ordem `schedule → setNextAlarm` preservada (AlarmSchedulerImpl engole
  *   SecurityException).
+ *
+ * @return `true` quando o rearme foi aplicado; `false` quando a permissão
+ *   foi revogada na janela TOCTOU — nesse caso NADA é executado e o caller
+ *   deve deixar o disparo TOCAR (mesma política da camada de decisão:
+ *   "suprimir sem rearme seria um alarme perdido em silêncio"; tocar não
+ *   exige exact alarm e mantém o estado da UI consistente via o fluxo
+ *   normal de notificação).
  */
 fun suppressPrimaryInsideBlock(
     alarmScheduler: AlarmScheduler,
@@ -224,17 +235,14 @@ fun suppressPrimaryInsideBlock(
     pendingExerciseId: Long,
     pendingExerciseName: String,
     pendingTargetReps: Int,
-) {
+): Boolean {
     if (!alarmScheduler.canScheduleExactAlarms()) {
         Log.w(
             ROTATION_HELPERS_TAG,
-            "suppressPrimaryInsideBlock aborted — SCHEDULE_EXACT_ALARM revogado entre decisão e aplicação",
+            "suppressPrimaryInsideBlock: SCHEDULE_EXACT_ALARM revogado entre decisão e " +
+                "aplicação — sem rearme possível, caindo para Ring",
         )
-        // Sem rearme possível: cancela overshoot residual e NÃO persiste
-        // nada — prefs continuam apontando para o disparo já consumido (no
-        // passado), estado que o usuário recupera ao abrir o app.
-        alarmScheduler.cancelOvershoot()
-        return
+        return false
     }
 
     val rearmMillis = rearmAt
@@ -263,4 +271,5 @@ fun suppressPrimaryInsideBlock(
         "disparo suprimido por bloco — alarme rearmado para $rearmAt " +
             "(evento/bloco cobrindo o momento do toque)",
     )
+    return true
 }

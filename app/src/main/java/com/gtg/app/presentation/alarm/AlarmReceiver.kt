@@ -107,6 +107,16 @@ class AlarmReceiver : BroadcastReceiver() {
          * externos. Invariante pinada por teste em RotationHelpersTest.
          */
         internal const val BLOCK_GUARD_BUDGET_MILLIS = 2_000L
+
+        /**
+         * Folga mínima que os sub-budgets nomeados devem deixar dentro de
+         * [SUSPEND_BUDGET_MILLIS]. Absorve o que NÃO tem budget próprio no
+         * dispatch: a leitura da ActivityWindow (Room, antes do guard), o
+         * build/notify da notificação e a cauda de agendamento/persistência.
+         * Se um sub-budget crescer e apertar esta folga, o teste de
+         * composição em RotationHelpersTest força a conversa.
+         */
+        internal const val DISPATCH_TAIL_SLACK_MILLIS = 4_000L
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -354,7 +364,7 @@ class AlarmReceiver : BroadcastReceiver() {
                 } else {
                     val (pendingId, pendingName, pendingReps) =
                         resolvePendingExercise(fallbackExerciseId, fallbackExerciseName, fallbackTargetReps)
-                    suppressPrimaryInsideBlock(
+                    val rearmed = suppressPrimaryInsideBlock(
                         alarmScheduler = alarmScheduler,
                         sessionPrefs = sessionPrefs,
                         rearmAt = decision.rearmAt,
@@ -362,6 +372,13 @@ class AlarmReceiver : BroadcastReceiver() {
                         pendingExerciseName = pendingName,
                         pendingTargetReps = pendingReps,
                     )
+                    if (!rearmed) {
+                        // TOCTOU: permissão revogada entre decisão e aplicação.
+                        // Sem rearme possível, suprimir seria alarme perdido em
+                        // silêncio — cai para Ring (tocar não exige exact alarm;
+                        // o fluxo normal mantém a UI consistente).
+                        return false
+                    }
                 }
             }
 

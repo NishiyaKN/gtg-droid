@@ -20,10 +20,12 @@ import com.gtg.app.domain.usecase.findNextActiveDate
 import com.gtg.app.domain.usecase.pickNextExerciseInRotation
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDateTime
 import java.time.ZoneId
@@ -82,44 +84,52 @@ class AlarmViewModel @Inject constructor(
      * Usuário confirmou a série. Registra log + reagenda.
      */
     fun performCheck() {
+        // NonCancellable: o Check é ação comprometida — depois que os
+        // side-effects de dismissal rodam, registro + reagendamento PRECISAM
+        // completar mesmo que a AlarmActivity termine no meio (finish/back
+        // durante resolução de blocos lenta). Cancelamento aqui deixaria a
+        // sessão sem nada armado (R5).
         viewModelScope.launch {
-            // Cancela overshoot + para som + fecha notificação ANTES de reagendar,
-            // para não deixar overshoot disparando com extras antigas após o Check.
-            dismissActiveAlarmSideEffects()
+            withContext(NonCancellable) {
+                // Cancela overshoot + para som + fecha notificação ANTES de
+                // reagendar, para não deixar overshoot disparando com extras
+                // antigas após o Check.
+                dismissActiveAlarmSideEffects()
 
-            val now = LocalDateTime.now()
-            val nowMillis = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val now = LocalDateTime.now()
+                val nowMillis = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
 
-            // 1. Registrar ExerciseLog — guard contra exerciseId inválido
-            // (intent corrompido / extras faltando). Sem isso, inseriríamos
-            // log com FK -1L apontando para "nenhum exercício".
-            if (exerciseId > 0L) {
-                exerciseLogRepository.insert(
-                    ExerciseLog(
-                        exerciseId = exerciseId,
-                        timestamp = now,
-                        repsCompleted = targetReps,
-                    ),
-                )
+                // 1. Registrar ExerciseLog — guard contra exerciseId inválido
+                // (intent corrompido / extras faltando). Sem isso, inseriríamos
+                // log com FK -1L apontando para "nenhum exercício".
+                if (exerciseId > 0L) {
+                    exerciseLogRepository.insert(
+                        ExerciseLog(
+                            exerciseId = exerciseId,
+                            timestamp = now,
+                            repsCompleted = targetReps,
+                        ),
+                    )
+                }
+
+                // 2. Atualizar âncora de cadência (U16a do lote 2026-05-20).
+                // Check via full-screen É Check real do usuário — move o anchor
+                // junto com HomeViewModel.startSession/performManualCheck. Sem
+                // isso, modo STRICT em rescheduleFromAnchor mid-session usaria
+                // o lastCheck antigo após Check pela AlarmActivity.
+                sessionPrefs.setLastCheck(nowMillis)
+
+                // 2b. Encerra a cadeia de alerta — Check é o evento que zera
+                // firstAlarmInChainMillis (cadeia mental do usuário terminou com
+                // sucesso). Próximo dispatch via AlarmReceiver escreverá fresh
+                // timestamp via recordAlarmDispatchedNow.
+                sessionPrefs.setFirstAlarmInChain(0L)
+
+                // 3. Reagendar (rotação avança mesmo se log foi pulado)
+                scheduleNext(checkTime = now)
+
+                _actionCompleted.value = true
             }
-
-            // 2. Atualizar âncora de cadência (U16a do lote 2026-05-20).
-            // Check via full-screen É Check real do usuário — move o anchor
-            // junto com HomeViewModel.startSession/performManualCheck. Sem
-            // isso, modo STRICT em rescheduleFromAnchor mid-session usaria
-            // o lastCheck antigo após Check pela AlarmActivity.
-            sessionPrefs.setLastCheck(nowMillis)
-
-            // 2b. Encerra a cadeia de alerta — Check é o evento que zera
-            // firstAlarmInChainMillis (cadeia mental do usuário terminou com
-            // sucesso). Próximo dispatch via AlarmReceiver escreverá fresh
-            // timestamp via recordAlarmDispatchedNow.
-            sessionPrefs.setFirstAlarmInChain(0L)
-
-            // 3. Reagendar (rotação avança mesmo se log foi pulado)
-            scheduleNext(checkTime = now)
-
-            _actionCompleted.value = true
         }
     }
 
@@ -152,46 +162,54 @@ class AlarmViewModel @Inject constructor(
      * bloco"; STRICT não é afetado.
      */
     fun performSnooze() {
+        // NonCancellable: depois que dismissActiveAlarmSideEffects cancela
+        // som/notificação/overshoot, o rearme PRECISA completar — a Activity
+        // terminando durante a resolução de blocos (≤3s) cancelaria o
+        // viewModelScope no ponto de suspensão e deixaria a sessão sem nada
+        // armado (R5). O budget em clampSnoozeToBounds cobre o caso pendurado;
+        // este wrap cobre o cancelamento externo.
         viewModelScope.launch {
-            dismissActiveAlarmSideEffects()
+            withContext(NonCancellable) {
+                dismissActiveAlarmSideEffects()
 
-            val now = LocalDateTime.now()
-            val delayMinutes = sessionPrefs.overshootRepeatMinutes.toLong()
-            val rawNextDateTime = now.plusMinutes(delayMinutes)
-            val activeWindow = activityWindowRepository.getActiveWindow()
-            val activeDays = sessionPrefs.activeDaysOfWeek
-            val nextDateTime = clampSnoozeToBounds(rawNextDateTime, activeWindow, activeDays)
+                val now = LocalDateTime.now()
+                val delayMinutes = sessionPrefs.overshootRepeatMinutes.toLong()
+                val rawNextDateTime = now.plusMinutes(delayMinutes)
+                val activeWindow = activityWindowRepository.getActiveWindow()
+                val activeDays = sessionPrefs.activeDaysOfWeek
+                val nextDateTime = clampSnoozeToBounds(rawNextDateTime, activeWindow, activeDays)
 
-            val nextMillis = nextDateTime
-                .atZone(ZoneId.systemDefault())
-                .toInstant()
-                .toEpochMilli()
+                val nextMillis = nextDateTime
+                    .atZone(ZoneId.systemDefault())
+                    .toInstant()
+                    .toEpochMilli()
 
-            alarmScheduler.cancel()
-            alarmScheduler.schedule(
-                triggerAt = nextDateTime,
-                exerciseId = exerciseId,
-                exerciseName = exerciseName,
-                targetReps = targetReps,
-            )
+                alarmScheduler.cancel()
+                alarmScheduler.schedule(
+                    triggerAt = nextDateTime,
+                    exerciseId = exerciseId,
+                    exerciseName = exerciseName,
+                    targetReps = targetReps,
+                )
 
-            sessionPrefs.setNextAlarm(
-                epochMillis = nextMillis,
-                exerciseId = exerciseId,
-                exerciseName = exerciseName,
-                targetReps = targetReps,
-            )
+                sessionPrefs.setNextAlarm(
+                    epochMillis = nextMillis,
+                    exerciseId = exerciseId,
+                    exerciseName = exerciseName,
+                    targetReps = targetReps,
+                )
 
-            // Cross-day rollover (clampSnoozeToBounds empurrou pro próximo dia
-            // ativo): encerra a cadeia atual — o T0 de ontem não tem mais
-            // significado pro contador. Sem isso, o counter exibe ex.: "+14h+"
-            // ao abrir a Home no dia seguinte. Idêntico ao reset que
-            // rescheduleForNextDay já faz no rollover do countdown.
-            if (nextDateTime.toLocalDate() != now.toLocalDate()) {
-                sessionPrefs.setFirstAlarmInChain(0L)
+                // Cross-day rollover (clampSnoozeToBounds empurrou pro próximo dia
+                // ativo): encerra a cadeia atual — o T0 de ontem não tem mais
+                // significado pro contador. Sem isso, o counter exibe ex.: "+14h+"
+                // ao abrir a Home no dia seguinte. Idêntico ao reset que
+                // rescheduleForNextDay já faz no rollover do countdown.
+                if (nextDateTime.toLocalDate() != now.toLocalDate()) {
+                    sessionPrefs.setFirstAlarmInChain(0L)
+                }
+
+                _actionCompleted.value = true
             }
-
-            _actionCompleted.value = true
         }
     }
 
@@ -219,10 +237,11 @@ class AlarmViewModel @Inject constructor(
         if (window == null) return nextDate.atTime(java.time.LocalTime.of(0, 0))
 
         // Budget + fallback bare: este caminho roda DEPOIS de
-        // dismissActiveAlarmSideEffects (som parado, notificação e overshoot
-        // cancelados) e ANTES de qualquer rearme — uma resolução pendurada ou
-        // cancelada aqui deixaria a sessão sem NADA armado. Mesmo contrato do
-        // rescheduleForNextDay (o resolver não lança; null ⇒ estouro do budget).
+        // dismissActiveAlarmSideEffects e ANTES de qualquer rearme. O
+        // withTimeoutOrNull cobre APENAS o estouro do próprio budget (null);
+        // cancelamento externo do escopo re-lança CancellationException e é
+        // coberto pelo withContext(NonCancellable) em performSnooze. Mesmo
+        // contrato do rescheduleForNextDay (o resolver não lança).
         return withTimeoutOrNull(FIRST_ALARM_RESOLUTION_BUDGET_MILLIS) {
             dynamicScheduler.resolveFirstAlarmStartingAt(
                 startDate = nextDate,

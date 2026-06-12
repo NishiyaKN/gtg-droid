@@ -191,7 +191,7 @@ class RotationHelpersTest {
     fun `suppress primary rearma e preserva a matriz de side-effects`() = runTest {
         val rearmAt = LocalDate.now().atTime(9, 45)
 
-        suppressPrimaryInsideBlock(
+        val rearmed = suppressPrimaryInsideBlock(
             alarmScheduler = alarmScheduler,
             sessionPrefs = sessionPrefs,
             rearmAt = rearmAt,
@@ -200,6 +200,7 @@ class RotationHelpersTest {
             pendingTargetReps = 10,
         )
 
+        assertTrue("caminho normal deve devolver true (rearme aplicado)", rearmed)
         verify(exactly = 1) {
             alarmScheduler.schedule(
                 triggerAt = rearmAt,
@@ -225,13 +226,14 @@ class RotationHelpersTest {
     }
 
     @Test
-    fun `suppress primary aborta limpo quando exact alarm foi revogado na janela TOCTOU`() = runTest {
+    fun `suppress primary devolve false sem side-effects quando exact alarm foi revogado`() = runTest {
         // Revogação entre a decisão (que checou) e a aplicação: sem rearme
-        // possível, NADA é persistido — senão prefs apontariam para alarme
-        // fantasma (schedule engole SecurityException).
+        // possível, NADA é executado e o retorno false manda o caller deixar
+        // o disparo TOCAR — suprimir sem rearme seria alarme perdido (política
+        // da camada de decisão); persistir apontaria para alarme fantasma.
         every { alarmScheduler.canScheduleExactAlarms() } returns false
 
-        suppressPrimaryInsideBlock(
+        val rearmed = suppressPrimaryInsideBlock(
             alarmScheduler = alarmScheduler,
             sessionPrefs = sessionPrefs,
             rearmAt = LocalDate.now().atTime(9, 45),
@@ -240,7 +242,8 @@ class RotationHelpersTest {
             pendingTargetReps = 10,
         )
 
-        verify(exactly = 1) { alarmScheduler.cancelOvershoot() }
+        assertTrue("abort TOCTOU deve devolver false (caller cai para Ring)", !rearmed)
+        verify(exactly = 0) { alarmScheduler.cancelOvershoot() }
         verify(exactly = 0) { alarmScheduler.schedule(any(), any(), any(), any()) }
         verify(exactly = 0) { sessionPrefs.setNextAlarm(any(), any(), any(), any()) }
         verify(exactly = 0) { sessionPrefs.setLastCheck(any()) }
@@ -251,14 +254,16 @@ class RotationHelpersTest {
     fun `sub-budgets do receiver compoem dentro do budget externo`() {
         // Pior caso do dispatch: leitura da window + guard de blocos (2s) +
         // resolução do rollover (3s) + cauda de agendamento, tudo sob os 9s
-        // do goAsync. A folga (~4s) absorve a window read e a cauda — se um
-        // dos sub-budgets crescer, este teste força a conversa.
+        // do goAsync. DISPATCH_TAIL_SLACK nomeia o que os sub-budgets NÃO
+        // cobrem (window read, notify, cauda) — se um sub-budget crescer ou
+        // a folga for reduzida, este teste força a conversa.
         assertTrue(
             "BLOCK_GUARD (${AlarmReceiver.BLOCK_GUARD_BUDGET_MILLIS}ms) + " +
                 "FIRST_ALARM_RESOLUTION (${FIRST_ALARM_RESOLUTION_BUDGET_MILLIS}ms) devem " +
-                "caber com folga nos ${AlarmReceiver.SUSPEND_BUDGET_MILLIS}ms externos",
+                "deixar DISPATCH_TAIL_SLACK (${AlarmReceiver.DISPATCH_TAIL_SLACK_MILLIS}ms) " +
+                "dentro dos ${AlarmReceiver.SUSPEND_BUDGET_MILLIS}ms externos",
             AlarmReceiver.BLOCK_GUARD_BUDGET_MILLIS + FIRST_ALARM_RESOLUTION_BUDGET_MILLIS <=
-                AlarmReceiver.SUSPEND_BUDGET_MILLIS - 4_000L,
+                AlarmReceiver.SUSPEND_BUDGET_MILLIS - AlarmReceiver.DISPATCH_TAIL_SLACK_MILLIS,
         )
     }
 }
