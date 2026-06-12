@@ -252,16 +252,12 @@ class DynamicSchedulerUseCaseTest {
     private fun resolve(
         blocks: List<InactivityBlock>,
         window: ActivityWindow = windowNineThirty,
-        intervalMode: IntervalMode = IntervalMode.DYNAMIC,
         candidate: LocalDateTime = wednesday.atTime(window.startTime),
-        floor: LocalDateTime? = null,
     ) = useCase.resolveFirstAlarmForDay(
         date = wednesday,
         window = window,
         blocks = blocks,
-        intervalMode = intervalMode,
         candidate = candidate,
-        floor = floor,
     )
 
     private fun resolved(time: LocalTime) =
@@ -375,28 +371,9 @@ class DynamicSchedulerUseCaseTest {
         assertEquals(resolved(LocalTime.of(10, 35)), result)
     }
 
-    @Test
-    fun `resolver com floor acima do fim do cluster usa o floor`() {
-        val blocks = listOf(lunchBlock(LocalTime.of(10, 0), LocalTime.of(10, 30)))
-
-        val result = resolve(
-            blocks,
-            candidate = wednesday.atTime(10, 5),
-            floor = wednesday.atTime(10, 40),
-        )
-
-        assertEquals(resolved(LocalTime.of(10, 40)), result)
-    }
-
-    @Test
-    fun `resolver STRICT retorna inicio da janela mesmo com bloco cobrindo`() {
-        // Contrato AE7: STRICT pode tocar dentro de bloco por design.
-        val blocks = listOf(lunchBlock(LocalTime.of(9, 10), LocalTime.of(9, 40)))
-
-        val result = resolve(blocks, intervalMode = IntervalMode.STRICT)
-
-        assertEquals(resolved(LocalTime.of(9, 30)), result)
-    }
+    // STRICT não tem teste no resolver puro: o primitivo é DYNAMIC-only por
+    // contrato; o curto-circuito STRICT vive (e é testado) nos pontos de
+    // entrada reais — wrapper, decisão fire-time e calculateNextAlarm.
 
     // ── U1: wrapper suspend com lookahead de dias ───────────────────
 
@@ -415,6 +392,7 @@ class DynamicSchedulerUseCaseTest {
         }
         val calendarRepo = mockk<CalendarEventRepository> {
             coEvery { getBlocksOn(any()) } returns emptyList()
+            coEvery { getBlocksInRange(any(), any()) } returns emptyMap()
         }
         return Triple(
             DynamicSchedulerUseCase(windowRepo, manualRepo, calendarRepo),
@@ -520,6 +498,25 @@ class DynamicSchedulerUseCaseTest {
         assertEquals(wednesday.atTime(9, 30), result)
         coVerify(exactly = 0) { manualRepo.getBlocksActiveOn(any()) }
         coVerify(exactly = 0) { calendarRepo.getBlocksOn(any()) }
+        coVerify(exactly = 0) { calendarRepo.getBlocksInRange(any(), any()) }
+    }
+
+    @Test
+    fun `wrapper degrada para inicio bare quando a busca de blocos falha`() = runTest {
+        // Fail-open interno (R5): falha de fetch nunca propaga aos callers —
+        // todos os caminhos de rollover sempre armam ALGO.
+        mockkStatic(Log::class)
+        every { Log.w(any(), any<String>(), any()) } returns 0
+
+        val (scheduler, manualRepo, _) = stubbedUseCase()
+        coEvery { manualRepo.getBlocksActiveOn(any()) } throws RuntimeException("Room indisponível")
+
+        val result = scheduler.resolveFirstAlarmStartingAt(
+            startDate = wednesday,
+            activeDaysOfWeek = weekdays,
+        )
+
+        assertEquals(wednesday.atTime(9, 30), result)
     }
 
     @Test

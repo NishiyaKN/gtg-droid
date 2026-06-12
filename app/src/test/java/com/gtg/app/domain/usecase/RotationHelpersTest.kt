@@ -60,6 +60,7 @@ class RotationHelpersTest {
         mockkStatic(Log::class)
         every { Log.w(any(), any<String>()) } returns 0
         every { Log.w(any(), any<String>(), any()) } returns 0
+        every { Log.i(any(), any<String>()) } returns 0
 
         every { alarmScheduler.canScheduleExactAlarms() } returns true
         every { sessionPrefs.intervalMode } returns IntervalMode.DYNAMIC
@@ -121,22 +122,9 @@ class RotationHelpersTest {
         verify(exactly = 0) { sessionPrefs.setLastCheck(any()) }
     }
 
-    @Test
-    fun `cai para inicio bare quando a resolucao lanca`() = runTest {
-        coEvery {
-            dynamicScheduler.resolveFirstAlarmStartingAt(any(), any(), any(), any())
-        } throws RuntimeException("provider indisponível")
-        val scheduled = slot<LocalDateTime>()
-
-        invoke()
-
-        // Fail-open: o caminho de rollover NUNCA termina sem alarme armado.
-        verify(exactly = 1) {
-            alarmScheduler.schedule(triggerAt = capture(scheduled), any(), any(), any())
-        }
-        assertEquals(LocalTime.of(9, 30), scheduled.captured.toLocalTime())
-        verify(exactly = 1) { sessionPrefs.setNextAlarm(any(), any(), any(), any()) }
-    }
+    // Falha de fetch não tem teste aqui: o fail-open de falha vive DENTRO de
+    // resolveFirstAlarmStartingAt (contrato no-throw, coberto em
+    // DynamicSchedulerUseCaseTest); este helper só trata o estouro do budget.
 
     @Test
     fun `cai para inicio bare quando a resolucao estoura o budget`() = runTest {
@@ -193,5 +181,41 @@ class RotationHelpersTest {
                 prefetchedWindow = window,
             )
         }
+    }
+
+    // ── suppressPrimaryInsideBlock (guard fire-time, U3) ────────────
+
+    @Test
+    fun `suppress primary rearma e preserva a matriz de side-effects`() = runTest {
+        val rearmAt = LocalDate.now().atTime(9, 45)
+
+        suppressPrimaryInsideBlock(
+            alarmScheduler = alarmScheduler,
+            sessionPrefs = sessionPrefs,
+            rearmAt = rearmAt,
+            pendingExerciseId = 1L,
+            pendingExerciseName = "Flexão",
+            pendingTargetReps = 10,
+        )
+
+        verify(exactly = 1) { alarmScheduler.cancel() }
+        verify(exactly = 1) { alarmScheduler.cancelOvershoot() }
+        verify(exactly = 1) {
+            alarmScheduler.schedule(
+                triggerAt = rearmAt,
+                exerciseId = 1L,
+                exerciseName = "Flexão",
+                targetReps = 10,
+            )
+        }
+        // Ordem schedule → persist (AlarmSchedulerImpl engole SecurityException).
+        verifyOrder {
+            alarmScheduler.schedule(any(), any(), any(), any())
+            sessionPrefs.setNextAlarm(any(), any(), any(), any())
+        }
+        // Matriz: postponement same-day NÃO toca âncora de cadência nem T0
+        // da cadeia — diferença deliberada vs rescheduleForNextDay.
+        verify(exactly = 0) { sessionPrefs.setLastCheck(any()) }
+        verify(exactly = 0) { sessionPrefs.setFirstAlarmInChain(any()) }
     }
 }

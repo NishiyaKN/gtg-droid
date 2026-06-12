@@ -5,7 +5,6 @@ import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.domain.model.ActivityWindow
 import com.gtg.app.domain.model.Exercise
 import com.gtg.app.domain.scheduler.AlarmScheduler
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -152,31 +151,23 @@ suspend fun rescheduleForNextDay(
     val nextDate = findNextActiveDate(LocalDate.now(), activeDays)
     val bareStart = nextDate.atTime(window.startTime)
 
-    // Resolução contra blocos do dia alvo, com fail-open para o início bare:
-    // - timeout → withTimeoutOrNull retorna null;
-    // - falha (Room/provider) → loga e cai para bare;
-    // - CancellationException re-lançada — engolir cancelamento do goAsync
-    //   externo executaria schedule num escopo já cancelado.
-    val nextDateTime = try {
-        withTimeoutOrNull(FIRST_ALARM_RESOLUTION_BUDGET_MILLIS) {
-            dynamicScheduler.resolveFirstAlarmStartingAt(
-                startDate = nextDate,
-                activeDaysOfWeek = activeDays,
-                intervalMode = sessionPrefs.intervalMode,
-                prefetchedWindow = window,
-            )
-        } ?: bareStart.also {
-            Log.w(
-                ROTATION_HELPERS_TAG,
-                "rescheduleForNextDay: resolução de blocos estourou " +
-                    "${FIRST_ALARM_RESOLUTION_BUDGET_MILLIS}ms — usando início bare",
-            )
-        }
-    } catch (e: CancellationException) {
-        throw e
-    } catch (e: Exception) {
-        Log.w(ROTATION_HELPERS_TAG, "rescheduleForNextDay: resolução de blocos falhou — início bare", e)
-        bareStart
+    // Resolução contra blocos do dia alvo. Fail-open por camada:
+    // - falha de fetch → o próprio resolver degrada para início bare (R5);
+    // - estouro do budget → withTimeoutOrNull retorna null e caímos para
+    //   bare aqui (o budget é política DESTE caller, por causa do goAsync).
+    val nextDateTime = withTimeoutOrNull(FIRST_ALARM_RESOLUTION_BUDGET_MILLIS) {
+        dynamicScheduler.resolveFirstAlarmStartingAt(
+            startDate = nextDate,
+            activeDaysOfWeek = activeDays,
+            intervalMode = sessionPrefs.intervalMode,
+            prefetchedWindow = window,
+        )
+    } ?: bareStart.also {
+        Log.w(
+            ROTATION_HELPERS_TAG,
+            "rescheduleForNextDay: resolução de blocos estourou " +
+                "${FIRST_ALARM_RESOLUTION_BUDGET_MILLIS}ms — usando início bare",
+        )
     }
 
     val nextMillis = nextDateTime
@@ -200,4 +191,59 @@ suspend fun rescheduleForNextDay(
         targetReps = pendingTargetReps,
     )
     sessionPrefs.setFirstAlarmInChain(0L)
+}
+
+/**
+ * Supressão de um disparo PRIMARY dentro de bloco (guard fire-time do
+ * AlarmReceiver, fix 2026-06-11): rearma para [rearmAt] e atualiza apenas o
+ * estado de agendamento. Gêmeo same-day de [rescheduleForNextDay] — vive
+ * aqui (e não no receiver) para que a matriz de side-effects seja testável
+ * com o harness existente.
+ *
+ * Matriz de side-effects:
+ * - `setNextAlarm` SIM — estado de agendamento, qualquer writer pode.
+ * - `setLastCheck` NUNCA — âncora de cadência, exclusiva de Checks reais.
+ * - `setFirstAlarmInChain` NÃO — postponement same-day preserva o T0 da
+ *   cadeia em andamento (diferente do rollover cross-day, que zera).
+ * - `recordAlarmDispatchedNow` NÃO é chamado — nenhum toque aconteceu
+ *   (responsabilidade do caller, que simplesmente não toca).
+ * - `canScheduleExactAlarms` já foi validado na decisão (false → Ring),
+ *   então aqui não há precondition.
+ * - Ordem `schedule → setNextAlarm` preservada (AlarmSchedulerImpl engole
+ *   SecurityException).
+ */
+fun suppressPrimaryInsideBlock(
+    alarmScheduler: AlarmScheduler,
+    sessionPrefs: SessionPreferences,
+    rearmAt: LocalDateTime,
+    pendingExerciseId: Long,
+    pendingExerciseName: String,
+    pendingTargetReps: Int,
+) {
+    val rearmMillis = rearmAt
+        .atZone(ZoneId.systemDefault())
+        .toInstant()
+        .toEpochMilli()
+
+    alarmScheduler.cancel()
+    alarmScheduler.cancelOvershoot()
+    alarmScheduler.schedule(
+        triggerAt = rearmAt,
+        exerciseId = pendingExerciseId,
+        exerciseName = pendingExerciseName,
+        targetReps = pendingTargetReps,
+    )
+
+    sessionPrefs.setNextAlarm(
+        epochMillis = rearmMillis,
+        exerciseId = pendingExerciseId,
+        exerciseName = pendingExerciseName,
+        targetReps = pendingTargetReps,
+    )
+
+    Log.i(
+        ROTATION_HELPERS_TAG,
+        "disparo suprimido por bloco — alarme rearmado para $rearmAt " +
+            "(evento/bloco cobrindo o momento do toque)",
+    )
 }

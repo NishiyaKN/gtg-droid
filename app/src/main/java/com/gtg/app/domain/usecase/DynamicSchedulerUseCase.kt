@@ -8,6 +8,7 @@ import com.gtg.app.domain.model.ScheduleResult
 import com.gtg.app.domain.repository.ActivityWindowRepository
 import com.gtg.app.domain.repository.CalendarEventRepository
 import com.gtg.app.domain.repository.InactivityBlockRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import java.time.DayOfWeek
@@ -60,14 +61,16 @@ class DynamicSchedulerUseCase @Inject constructor(
          * Espelha o caminhar máximo de [findNextActiveDate]. Na exaustão o
          * wrapper degrada para início bare de janela — nunca "sem alarme".
          */
-        const val MAX_FIRST_ALARM_LOOKAHEAD_DAYS = 7
+        private const val MAX_FIRST_ALARM_LOOKAHEAD_DAYS = 7
 
         /**
          * Offset fixo do piso de rearme fire-time: o horário rearmado é
          * sempre ≥ `now + este offset` (nunca um best-effort dinâmico).
-         * Protege contra rearme no passado → loop de disparo imediato.
+         * Com a mescla de clusters o rearme natural (fim + buffer) já é
+         * sempre > now + buffer; o piso documenta a garantia contra drift
+         * futuro (ex.: buffer reduzido a zero).
          */
-        const val FIRE_TIME_REARM_FLOOR_MINUTES = 1L
+        private const val FIRE_TIME_REARM_FLOOR_MINUTES = 1L
 
         private const val TAG = "DynamicScheduler"
     }
@@ -352,6 +355,12 @@ class DynamicSchedulerUseCase @Inject constructor(
     /**
      * Agenda para o início da ActivityWindow do próximo dia ATIVO da semana.
      * Pula dias removidos pelo usuário em Configurações (ex: sábado/domingo).
+     *
+     * **Acoplamento:** o gate de re-resolução em [calculateNextAlarm]
+     * identifica os resultados deste método por `dateTime.toLocalTime() ==
+     * window.startTime`. Se este horário deixar de ser exatamente o início
+     * bare da janela, atualize o gate junto — senão a proteção contra blocos
+     * evapora em silêncio.
      */
     private fun scheduleForNextActiveDay(
         currentDate: LocalDate,
@@ -392,6 +401,10 @@ class DynamicSchedulerUseCase @Inject constructor(
 
     /**
      * Resolve um candidato a "primeiro alarme" contra os blocos de [date].
+     * Primitivo DYNAMIC-only — STRICT (que toca dentro de bloco por design,
+     * contrato AE7) é tratado nos pontos de entrada reais:
+     * [resolveFirstAlarmStartingAt], [decideFireTimeDispatch] e
+     * [calculateNextAlarm].
      *
      * Diferenças deliberadas vs. a Regra 4 da engine:
      * - **Postpone-only.** Nunca antecipa: no início de janela a antecipação
@@ -405,49 +418,23 @@ class DynamicSchedulerUseCase @Inject constructor(
      *   bloco (qualquer bloco tão próximo teria sido mesclado) — resolução
      *   em passada única, sem o ping-pong possível na Regra 4.
      *
-     * STRICT retorna o [candidate] bare — pode tocar dentro de bloco por
-     * design (contrato AE7 do plano post-testing).
-     *
      * @param candidate ponto de partida; default = início da janela de [date].
-     * @param floor piso opcional (callers fire-time): o resultado nunca é
-     *   anterior a ele. Aplicado APÓS a colisão; se o floor cair dentro de
-     *   outro cluster, re-adia uma vez.
      */
     fun resolveFirstAlarmForDay(
         date: LocalDate,
         window: ActivityWindow,
         blocks: List<InactivityBlock>,
-        intervalMode: IntervalMode = IntervalMode.DYNAMIC,
         candidate: LocalDateTime = date.atTime(window.startTime),
-        floor: LocalDateTime? = null,
     ): FirstAlarmResolution {
-        if (intervalMode == IntervalMode.STRICT) {
-            return FirstAlarmResolution.Resolved(candidate)
-        }
-
         val clusters = mergeBlocksIntoClusters(blocks)
 
-        fun clusterContaining(value: LocalDateTime): BlockCluster? =
-            clusters.firstOrNull { cluster ->
-                value >= date.atTime(cluster.start) && value < date.atTime(cluster.end)
-            }
-
-        var resolved = candidate
-        // Passada única por construção (ver KDoc); o bound extra é apenas
-        // paranoia defensiva contra drift futuro na mescla.
-        var safety = clusters.size + 1
-        while (safety-- > 0) {
-            val containing = clusterContaining(resolved) ?: break
-            resolved = date.atTime(containing.end).plusMinutes(INACTIVITY_BUFFER_MINUTES)
+        val containing = clusters.firstOrNull { cluster ->
+            candidate >= date.atTime(cluster.start) && candidate < date.atTime(cluster.end)
         }
-
-        if (floor != null && resolved.isBefore(floor)) {
-            resolved = floor
-            // Floor arbitrário pode cair dentro de outro cluster; um único
-            // re-adiamento basta (mesmo argumento da passada única).
-            clusterContaining(resolved)?.let { containing ->
-                resolved = date.atTime(containing.end).plusMinutes(INACTIVITY_BUFFER_MINUTES)
-            }
+        val resolved = if (containing != null) {
+            date.atTime(containing.end).plusMinutes(INACTIVITY_BUFFER_MINUTES)
+        } else {
+            candidate
         }
 
         return if (!resolved.isBefore(date.atTime(window.endTime))) {
@@ -459,7 +446,7 @@ class DynamicSchedulerUseCase @Inject constructor(
 
     /**
      * Wrapper suspend: resolve o primeiro alarme válido a partir de
-     * [startDate], buscando os blocos de cada dia candidato e rolando para
+     * [startDate], buscando os blocos dos dias candidatos e rolando para
      * o próximo dia ativo quando o adiamento estoura o fim da janela.
      *
      * Garantias:
@@ -468,7 +455,17 @@ class DynamicSchedulerUseCase @Inject constructor(
      *   (ex.: bloco DAILY 00:00–23:59 permanente) degrada para o início
      *   bare do último dia examinado + warn — nunca retorna "sem alarme";
      *   o guard fire-time é a rede para esse estado.
+     * - **Fail-open interno (R5):** falha na busca de blocos degrada para o
+     *   início bare do primeiro dia candidato + warn, nunca propaga — a
+     *   política "falha de resolução nunca vira alarme nenhum" vive AQUI,
+     *   não em cada caller (CancellationException é re-lançada).
      * - STRICT não consulta blocos (Regra 4 desligada por design).
+     *
+     * I/O: as datas candidatas dependem só de [activeDaysOfWeek] e são
+     * precomputáveis, então o Calendar Provider é consultado UMA vez via
+     * range (1 binder round-trip cross-process em vez de até 7 sequenciais —
+     * relevante dentro dos sub-budgets do receiver); os blocos manuais
+     * (Room, local e barato) são buscados por dia em paralelo.
      *
      * @param prefetchedWindow evita refetch quando o caller já tem a window
      *   (ex.: rescheduleForNextDay) — espelha o padrão de pré-busca do cache.
@@ -484,37 +481,67 @@ class DynamicSchedulerUseCase @Inject constructor(
             ?: activityWindowRepository.getActiveWindow()
             ?: return null
 
-        var date = if (startDate.dayOfWeek in activeDaysOfWeek) {
+        val firstDate = if (startDate.dayOfWeek in activeDaysOfWeek) {
             startDate
         } else {
             findNextActiveDate(startDate, activeDaysOfWeek)
         }
 
         if (intervalMode == IntervalMode.STRICT) {
-            return date.atTime(window.startTime)
+            return firstDate.atTime(window.startTime)
         }
 
-        var lastExamined = date
-        repeat(MAX_FIRST_ALARM_LOOKAHEAD_DAYS) {
-            lastExamined = date
-            val blocks = coroutineScope {
-                val manualDef = async { inactivityBlockRepository.getBlocksActiveOn(date) }
-                val calendarDef = async { calendarEventRepository.getBlocksOn(date) }
-                manualDef.await() + calendarDef.await()
+        // Datas candidatas precomputadas — overflow só decide SE continua,
+        // nunca PARA ONDE vai.
+        val candidateDates = buildList {
+            var date = firstDate
+            repeat(MAX_FIRST_ALARM_LOOKAHEAD_DAYS) {
+                add(date)
+                date = findNextActiveDate(date, activeDaysOfWeek)
             }
-            when (val resolution = resolveFirstAlarmForDay(date, window, blocks)) {
+        }
+
+        val blocksByDate = try {
+            coroutineScope {
+                val calendarDef = async {
+                    calendarEventRepository.getBlocksInRange(
+                        startDate = candidateDates.first(),
+                        endDateInclusive = candidateDates.last(),
+                    )
+                }
+                val manualDefs = candidateDates.map { date ->
+                    date to async { inactivityBlockRepository.getBlocksActiveOn(date) }
+                }
+                val calendarByDate = calendarDef.await()
+                manualDefs.associate { (date, deferred) ->
+                    date to (deferred.await() + calendarByDate[date].orEmpty())
+                }
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(
+                TAG,
+                "resolveFirstAlarmStartingAt: busca de blocos falhou — " +
+                    "degradando para início bare de $firstDate",
+                e,
+            )
+            return firstDate.atTime(window.startTime)
+        }
+
+        for (date in candidateDates) {
+            when (val resolution = resolveFirstAlarmForDay(date, window, blocksByDate.getValue(date))) {
                 is FirstAlarmResolution.Resolved -> return resolution.dateTime
-                FirstAlarmResolution.OverflowsWindowEnd ->
-                    date = findNextActiveDate(date, activeDaysOfWeek)
+                FirstAlarmResolution.OverflowsWindowEnd -> Unit // tenta o próximo dia
             }
         }
 
         Log.w(
             TAG,
             "resolveFirstAlarmStartingAt: lookahead de $MAX_FIRST_ALARM_LOOKAHEAD_DAYS dias " +
-                "exaurido a partir de $startDate — degradando para início bare de $lastExamined",
+                "exaurido a partir de $startDate — degradando para início bare de ${candidateDates.last()}",
         )
-        return lastExamined.atTime(window.startTime)
+        return candidateDates.last().atTime(window.startTime)
     }
 
     /**
@@ -572,39 +599,26 @@ class DynamicSchedulerUseCase @Inject constructor(
         if (intervalMode == IntervalMode.STRICT) return FireTimeDecision.Ring
         if (!canScheduleExactAlarms) return FireTimeDecision.Ring
 
-        val date = now.toLocalDate()
-
-        // Probe SEM floor: distingue "fora de bloco" (resolved == now → Ring)
-        // de "dentro de bloco" (resolved moveu). Com floor o caso livre
-        // retornaria now+floor e seria lido como supressão falsa.
         val probe = resolveFirstAlarmForDay(
-            date = date,
+            date = now.toLocalDate(),
             window = window,
             blocks = blocks,
-            intervalMode = IntervalMode.DYNAMIC,
             candidate = now,
         )
 
         return when (probe) {
-            is FirstAlarmResolution.Resolved -> {
-                if (probe.dateTime == now) return FireTimeDecision.Ring
-
-                // Dentro de cluster — recomputa com o piso fixo aplicado.
-                val floored = resolveFirstAlarmForDay(
-                    date = date,
-                    window = window,
-                    blocks = blocks,
-                    intervalMode = IntervalMode.DYNAMIC,
-                    candidate = now,
-                    floor = now.plusMinutes(FIRE_TIME_REARM_FLOOR_MINUTES),
-                )
-                when (floored) {
-                    is FirstAlarmResolution.Resolved ->
-                        FireTimeDecision.SuppressAndReschedule(floored.dateTime)
-                    FirstAlarmResolution.OverflowsWindowEnd ->
-                        FireTimeDecision.SuppressAndRollToNextDay
+            is FirstAlarmResolution.Resolved ->
+                if (probe.dateTime == now) {
+                    // Fora de qualquer cluster — o candidato não se moveu.
+                    FireTimeDecision.Ring
+                } else {
+                    // Dentro de cluster. O rearme natural (fim + buffer) já é
+                    // > now por construção; o maxOf materializa o contrato do
+                    // piso fixo contra drift futuro.
+                    FireTimeDecision.SuppressAndReschedule(
+                        maxOf(probe.dateTime, now.plusMinutes(FIRE_TIME_REARM_FLOOR_MINUTES)),
+                    )
                 }
-            }
             FirstAlarmResolution.OverflowsWindowEnd -> FireTimeDecision.SuppressAndRollToNextDay
         }
     }
@@ -613,6 +627,12 @@ class DynamicSchedulerUseCase @Inject constructor(
      * Overload suspend de [decideFireTimeDispatch]: busca os blocos do dia
      * de [now] (manual + Calendar, em paralelo) e delega à decisão pura.
      * Caller: AlarmReceiver, dentro do sub-budget do guard.
+     *
+     * Os early-returns de STRICT/exact-alarm vêm ANTES do fetch: a decisão
+     * deles não depende de blocos, e pagar uma query cross-process ao
+     * provider (potencialmente lenta pós-doze) para descartá-la atrasaria
+     * todo dispatch de um usuário STRICT à toa. Falha do fetch → Ring
+     * (fail-open, mesma política do guard).
      */
     suspend fun decideFireTimeDispatch(
         now: LocalDateTime,
@@ -620,11 +640,21 @@ class DynamicSchedulerUseCase @Inject constructor(
         intervalMode: IntervalMode,
         canScheduleExactAlarms: Boolean,
     ): FireTimeDecision {
+        if (intervalMode == IntervalMode.STRICT) return FireTimeDecision.Ring
+        if (!canScheduleExactAlarms) return FireTimeDecision.Ring
+
         val date = now.toLocalDate()
-        val blocks = coroutineScope {
-            val manualDef = async { inactivityBlockRepository.getBlocksActiveOn(date) }
-            val calendarDef = async { calendarEventRepository.getBlocksOn(date) }
-            manualDef.await() + calendarDef.await()
+        val blocks = try {
+            coroutineScope {
+                val manualDef = async { inactivityBlockRepository.getBlocksActiveOn(date) }
+                val calendarDef = async { calendarEventRepository.getBlocksOn(date) }
+                manualDef.await() + calendarDef.await()
+            }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Log.w(TAG, "decideFireTimeDispatch: busca de blocos falhou — fail-open (Ring)", e)
+            return FireTimeDecision.Ring
         }
         return decideFireTimeDispatch(
             now = now,
