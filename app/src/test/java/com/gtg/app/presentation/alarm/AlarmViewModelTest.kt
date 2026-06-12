@@ -78,8 +78,17 @@ class AlarmViewModelTest {
         every { sessionPrefs.activeDaysOfWeek } returns DayOfWeek.entries.toSet()
         every { sessionPrefs.overshootRepeatMinutes } returns 5
         coEvery {
-            dynamicScheduler.calculateNextAlarm(any(), any(), any(), any(), any())
+            dynamicScheduler.calculateNextAlarm(any(), any(), any(), any(), any(), any())
         } returns ScheduleResult.Scheduled(LocalDateTime.now().plusMinutes(45))
+        // Rollover de snooze delega ao resolver (fix 2026-06-11). Default:
+        // emula "sem blocos" — início bare da janela do dia pedido.
+        coEvery {
+            dynamicScheduler.resolveFirstAlarmStartingAt(any(), any(), any(), any())
+        } answers {
+            firstArg<java.time.LocalDate>().atTime(
+                arg<ActivityWindow?>(3)?.startTime ?: LocalTime.MIDNIGHT,
+            )
+        }
     }
 
     @After
@@ -169,7 +178,7 @@ class AlarmViewModelTest {
     @Test
     fun `Check com NoWindowConfigured limpa sessao`() = runTest {
         coEvery {
-            dynamicScheduler.calculateNextAlarm(any(), any(), any(), any(), any())
+            dynamicScheduler.calculateNextAlarm(any(), any(), any(), any(), any(), any())
         } returns ScheduleResult.NoWindowConfigured
         val vm = buildViewModel()
 
@@ -186,7 +195,7 @@ class AlarmViewModelTest {
     fun `Check com ScheduledTomorrow agenda no dia seguinte`() = runTest {
         val tomorrow = LocalDateTime.now().plusDays(1).withHour(8).withMinute(0)
         coEvery {
-            dynamicScheduler.calculateNextAlarm(any(), any(), any(), any(), any())
+            dynamicScheduler.calculateNextAlarm(any(), any(), any(), any(), any(), any())
         } returns ScheduleResult.ScheduledTomorrow(tomorrow)
         val vm = buildViewModel()
 
@@ -220,7 +229,7 @@ class AlarmViewModelTest {
         }
         coVerify(exactly = 0) { exerciseLogRepository.insert(any<ExerciseLog>()) }
         coVerify(exactly = 0) {
-            dynamicScheduler.calculateNextAlarm(any(), any(), any(), any(), any())
+            dynamicScheduler.calculateNextAlarm(any(), any(), any(), any(), any(), any())
         }
         verify(exactly = 1) {
             sessionPrefs.setNextAlarm(
@@ -339,5 +348,46 @@ class AlarmViewModelTest {
             captured.captured.toLocalDate().isAfter(now.toLocalDate()) &&
                 captured.captured.toLocalTime() == LocalTime.of(8, 0),
         )
+    }
+
+    @Test
+    fun `performSnooze rollover resolve contra blocos do dia alvo`() = runTest {
+        // Fix 2026-06-11: rollover de snooze com bloco cobrindo o início da
+        // janela do dia alvo agenda o horário RESOLVIDO (fim do cluster +
+        // buffer), não o início bare. Resolver mockado emula bloco 08:00-08:40
+        // → 08:45.
+        val now = LocalDateTime.now()
+        val endTime = now.plusMinutes(2).toLocalTime() // janela acaba antes do snooze
+        val window = ActivityWindow(
+            id = 1L,
+            startTime = LocalTime.of(8, 0),
+            endTime = endTime,
+        )
+        coEvery { activityWindowRepository.getActiveWindow() } returns window
+        coEvery {
+            dynamicScheduler.resolveFirstAlarmStartingAt(any(), any(), any(), any())
+        } answers { firstArg<java.time.LocalDate>().atTime(LocalTime.of(8, 45)) }
+        val captured = slot<LocalDateTime>()
+        val vm = buildViewModel()
+
+        vm.performSnooze()
+        advanceUntilIdle()
+
+        verify(exactly = 1) {
+            alarmScheduler.schedule(triggerAt = capture(captured), any(), any(), any())
+        }
+        assertTrue(
+            "rollover de snooze (${captured.captured}) deveria usar o horário resolvido 08:45",
+            captured.captured.toLocalDate().isAfter(now.toLocalDate()) &&
+                captured.captured.toLocalTime() == LocalTime.of(8, 45),
+        )
+        coVerify(exactly = 1) {
+            dynamicScheduler.resolveFirstAlarmStartingAt(
+                startDate = any(),
+                activeDaysOfWeek = any(),
+                intervalMode = any(),
+                prefetchedWindow = window,
+            )
+        }
     }
 }

@@ -547,4 +547,118 @@ class DynamicSchedulerUseCaseTest {
 
         assertNull(result)
     }
+
+    // ── U2: calculateNextAlarm resolve rollovers contra blocos ──────
+
+    @Test
+    fun `calculateNextAlarm resolve rollover bare contra blocos do dia seguinte`() = runTest {
+        // Check 17:50 + 45min = 18:35 > fim da janela (18:00) → rollover para
+        // quinta. Quinta tem evento 09:10–09:40 cobrindo o início (09:30) →
+        // o alarme armado deve ser 09:45, não o início bare.
+        val thursday = wednesday.plusDays(1)
+        val (scheduler, _, _) = stubbedUseCase(
+            blocksByDate = mapOf(
+                thursday to listOf(
+                    lunchBlock(LocalTime.of(9, 10), LocalTime.of(9, 40)).copy(specificDate = thursday),
+                ),
+            ),
+        )
+        val checkTime = wednesday.atTime(17, 50)
+
+        val result = scheduler.calculateNextAlarm(
+            checkTime = checkTime,
+            baseIntervalMinutes = 45L,
+            now = checkTime,
+            activeDaysOfWeek = weekdays,
+            intervalMode = IntervalMode.DYNAMIC,
+        )
+
+        assertEquals(ScheduleResult.ScheduledTomorrow(thursday.atTime(9, 45)), result)
+    }
+
+    @Test
+    fun `calculateNextAlarm nao reescreve fall-through cross-midnight mid-window`() = runTest {
+        // 4º produtor de ScheduledTomorrow: check 22:00 + 240min = 02:00 do dia
+        // seguinte, DENTRO da janela (01:00–23:00) e já validado pela Regra 4
+        // com os blocos da data correta. O gate (horário != início da janela)
+        // impede a re-resolução — reescrever do início anteciparia o alarme
+        // (01:35) violando o intervalo pedido pelo usuário.
+        val thursday = wednesday.plusDays(1)
+        val nightWindow = ActivityWindow(
+            id = 1L,
+            startTime = LocalTime.of(1, 0),
+            endTime = LocalTime.of(23, 0),
+            isActive = true,
+        )
+        val (scheduler, _, _) = stubbedUseCase(
+            blocksByDate = mapOf(
+                thursday to listOf(
+                    lunchBlock(LocalTime.of(1, 0), LocalTime.of(1, 30)).copy(specificDate = thursday),
+                ),
+            ),
+            activeWindow = nightWindow,
+        )
+        val checkTime = wednesday.atTime(22, 0)
+
+        val result = scheduler.calculateNextAlarm(
+            checkTime = checkTime,
+            baseIntervalMinutes = 240L,
+            now = checkTime,
+            activeDaysOfWeek = weekdays,
+            intervalMode = IntervalMode.DYNAMIC,
+        )
+
+        assertEquals(ScheduleResult.ScheduledTomorrow(thursday.atTime(2, 0)), result)
+    }
+
+    @Test
+    fun `calculateNextAlarm com resolveRolloverAgainstBlocks false mantem inicio bare`() = runTest {
+        // Caminho da preview de sessão parada: o resultado é descartado, então
+        // o caller opta por não pagar o lookahead — comportamento pré-fix.
+        val thursday = wednesday.plusDays(1)
+        val (scheduler, _, _) = stubbedUseCase(
+            blocksByDate = mapOf(
+                thursday to listOf(
+                    lunchBlock(LocalTime.of(9, 10), LocalTime.of(9, 40)).copy(specificDate = thursday),
+                ),
+            ),
+        )
+        val checkTime = wednesday.atTime(17, 50)
+
+        val result = scheduler.calculateNextAlarm(
+            checkTime = checkTime,
+            baseIntervalMinutes = 45L,
+            now = checkTime,
+            activeDaysOfWeek = weekdays,
+            intervalMode = IntervalMode.DYNAMIC,
+            resolveRolloverAgainstBlocks = false,
+        )
+
+        assertEquals(ScheduleResult.ScheduledTomorrow(thursday.atTime(9, 30)), result)
+    }
+
+    @Test
+    fun `calculateNextAlarm STRICT rollover mantem inicio bare mesmo com bloco`() = runTest {
+        // Contrato AE7: STRICT pode tocar dentro de bloco por design — a
+        // resolução de rollover não se aplica.
+        val thursday = wednesday.plusDays(1)
+        val (scheduler, _, _) = stubbedUseCase(
+            blocksByDate = mapOf(
+                thursday to listOf(
+                    lunchBlock(LocalTime.of(9, 10), LocalTime.of(9, 40)).copy(specificDate = thursday),
+                ),
+            ),
+        )
+        val checkTime = wednesday.atTime(17, 50)
+
+        val result = scheduler.calculateNextAlarm(
+            checkTime = checkTime,
+            baseIntervalMinutes = 45L,
+            now = checkTime,
+            activeDaysOfWeek = weekdays,
+            intervalMode = IntervalMode.STRICT,
+        )
+
+        assertEquals(ScheduleResult.ScheduledTomorrow(thursday.atTime(9, 30)), result)
+    }
 }

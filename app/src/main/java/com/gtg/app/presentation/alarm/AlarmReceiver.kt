@@ -17,6 +17,7 @@ import com.gtg.app.R
 import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.domain.repository.ActivityWindowRepository
 import com.gtg.app.domain.scheduler.AlarmScheduler
+import com.gtg.app.domain.usecase.DynamicSchedulerUseCase
 import com.gtg.app.domain.usecase.isInsideActiveWindow
 import com.gtg.app.domain.usecase.rescheduleForNextDay
 import dagger.hilt.android.AndroidEntryPoint
@@ -66,6 +67,7 @@ class AlarmReceiver : BroadcastReceiver() {
     @Inject lateinit var sessionPrefs: SessionPreferences
     @Inject lateinit var alarmScheduler: AlarmScheduler
     @Inject lateinit var activityWindowRepository: ActivityWindowRepository
+    @Inject lateinit var dynamicScheduler: DynamicSchedulerUseCase
 
     companion object {
         private const val TAG = "AlarmReceiver"
@@ -154,6 +156,7 @@ class AlarmReceiver : BroadcastReceiver() {
                 pendingExerciseId = sessionPrefs.pendingExerciseId.takeIf { it > 0L } ?: exerciseId,
                 pendingExerciseName = sessionPrefs.pendingExerciseName.takeIf { it.isNotBlank() } ?: exerciseName,
                 pendingTargetReps = sessionPrefs.pendingTargetReps.takeIf { it > 0 } ?: targetReps,
+                dynamicScheduler = dynamicScheduler,
             )
             return
         }

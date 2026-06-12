@@ -188,10 +188,14 @@ class AlarmViewModel @Inject constructor(
     /**
      * Garante que o snooze fica dentro de `activeDaysOfWeek` e antes de
      * [ActivityWindow.endTime]. Se cair fora de qualquer um, faz rollover
-     * para o início da janela do próximo dia ativo. Sem [ActivityWindow]
-     * configurada, valida apenas `activeDaysOfWeek`.
+     * para o início da janela do próximo dia ativo — passando por
+     * [DynamicSchedulerUseCase.resolveFirstAlarmStartingAt] (fix 2026-06-11):
+     * em DYNAMIC, um bloco cobrindo o início da janela do dia alvo adia o
+     * alarme para o fim do cluster + buffer; STRICT continua bare por design.
+     * Sem [ActivityWindow] configurada, valida apenas `activeDaysOfWeek` e
+     * mantém o fallback meia-noite (o resolver exige janela).
      */
-    private fun clampSnoozeToBounds(
+    private suspend fun clampSnoozeToBounds(
         candidate: LocalDateTime,
         window: ActivityWindow?,
         activeDays: Set<java.time.DayOfWeek>,
@@ -202,8 +206,14 @@ class AlarmViewModel @Inject constructor(
         if (dayOk && withinWindow) return candidate
 
         val nextDate = findNextActiveDate(candidateDate, activeDays)
-        val startTime = window?.startTime ?: java.time.LocalTime.of(0, 0)
-        return nextDate.atTime(startTime)
+        if (window == null) return nextDate.atTime(java.time.LocalTime.of(0, 0))
+
+        return dynamicScheduler.resolveFirstAlarmStartingAt(
+            startDate = nextDate,
+            activeDaysOfWeek = activeDays,
+            intervalMode = sessionPrefs.intervalMode,
+            prefetchedWindow = window,
+        ) ?: nextDate.atTime(window.startTime)
     }
 
     /**

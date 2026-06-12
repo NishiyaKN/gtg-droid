@@ -91,6 +91,14 @@ class DynamicSchedulerUseCase @Inject constructor(
      *                  Regra 1 garante que este método só é chamado nesse momento.
      * @param baseIntervalMinutes Intervalo base configurado pelo usuário (ex: 45).
      * @param now Horário atual do sistema. Parâmetro injetável para facilitar testes.
+     * @param resolveRolloverAgainstBlocks Quando `true` (default), resultados
+     *   [ScheduleResult.ScheduledTomorrow] em início bare de janela passam pelo
+     *   [resolveFirstAlarmStartingAt] para respeitar os blocos do dia alvo
+     *   (fix 2026-06-11 — Regra 4 não roda nos early-returns de rollover).
+     *   Callers que DESCARTAM ScheduledTomorrow (preview de sessão parada na
+     *   Home) passam `false` para não pagar o lookahead à toa. Default `true`:
+     *   writers novos ganham a proteção sem opt-in — lição do bypass de
+     *   activeDaysOfWeek (docs/solutions/logic-errors).
      * @return [ScheduleResult] com o horário do próximo alarme ou indicação de estado.
      */
     suspend fun calculateNextAlarm(
@@ -99,6 +107,7 @@ class DynamicSchedulerUseCase @Inject constructor(
         now: LocalDateTime = LocalDateTime.now(),
         activeDaysOfWeek: Set<DayOfWeek> = DayOfWeek.entries.toSet(),
         intervalMode: IntervalMode = IntervalMode.DYNAMIC,
+        resolveRolloverAgainstBlocks: Boolean = true,
     ): ScheduleResult {
         // Pre-computa a data alvo para pré-buscar blocos da data correta.
         // Replica o mesmo cálculo do início de [evaluateWithDependencies] mas
@@ -118,7 +127,7 @@ class DynamicSchedulerUseCase @Inject constructor(
 
         val deps = preFetchForDate(targetDate)
             ?: return ScheduleResult.NoWindowConfigured
-        return evaluateWithDependencies(
+        val result = evaluateWithDependencies(
             checkTime = checkTime,
             baseIntervalMinutes = baseIntervalMinutes,
             now = now,
@@ -126,6 +135,28 @@ class DynamicSchedulerUseCase @Inject constructor(
             intervalMode = intervalMode,
             deps = deps,
         )
+
+        if (!resolveRolloverAgainstBlocks) return result
+        if (result !is ScheduleResult.ScheduledTomorrow) return result
+        // STRICT pode tocar dentro de bloco por design (AE7) — bare é correto.
+        if (intervalMode == IntervalMode.STRICT) return result
+        // Gate: só re-resolve resultados em início BARE de janela — a assinatura
+        // dos três early-returns de scheduleForNextActiveDay (que nunca viram a
+        // Regra 4 do dia alvo). O fall-through cross-midnight (4º produtor de
+        // ScheduledTomorrow) carrega horário mid-window JÁ resolvido pela Regra 4
+        // com os blocos da data correta e NÃO pode ser reescrito — re-resolver do
+        // início da janela o anteciparia, podendo violar o descanso mínimo.
+        // Quando o fall-through coincide exatamente com o início da janela, a
+        // Regra 4 já o liberou contra os blocos do dia → re-resolução idempotente.
+        if (result.dateTime.toLocalTime() != deps.window.startTime) return result
+
+        val resolved = resolveFirstAlarmStartingAt(
+            startDate = result.dateTime.toLocalDate(),
+            activeDaysOfWeek = activeDaysOfWeek,
+            intervalMode = intervalMode,
+            prefetchedWindow = deps.window,
+        ) ?: return result
+        return ScheduleResult.ScheduledTomorrow(resolved)
     }
 
     /**

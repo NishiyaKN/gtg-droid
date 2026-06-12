@@ -399,11 +399,16 @@ class HomeViewModel @Inject constructor(
             // pelo scheduler para respeitar a janela de atividade. Sem isso
             // a UI mostra horários fora da janela (ex: 23h01 quando janela
             // termina às 17h30) por usar `now + interval` cego.
+            //
+            // resolveRolloverAgainstBlocks=false: ScheduledTomorrow é DESCARTADO
+            // logo abaixo — pagar o lookahead de blocos (até 7 dias de queries
+            // ao CalendarProvider) a cada rebuild da preview seria desperdício.
             val candidate = dynamicScheduler.calculateNextAlarm(
                 checkTime = LocalDateTime.now(),
                 baseIntervalMinutes = sessionPrefs.baseIntervalMinutes,
                 activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
                 intervalMode = sessionPrefs.intervalMode,
+                resolveRolloverAgainstBlocks = false,
             )
             when (candidate) {
                 is ScheduleResult.Scheduled -> {
@@ -485,6 +490,7 @@ class HomeViewModel @Inject constructor(
                             pendingExerciseId = sessionPrefs.pendingExerciseId,
                             pendingExerciseName = sessionPrefs.pendingExerciseName,
                             pendingTargetReps = sessionPrefs.pendingTargetReps,
+                            dynamicScheduler = dynamicScheduler,
                         )
                         return@launch
                     }
