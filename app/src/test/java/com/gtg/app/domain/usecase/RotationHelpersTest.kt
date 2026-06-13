@@ -266,4 +266,86 @@ class RotationHelpersTest {
                 AlarmReceiver.SUSPEND_BUDGET_MILLIS - AlarmReceiver.DISPATCH_TAIL_SLACK_MILLIS,
         )
     }
+
+    // ── Funções puras: findNextActiveDate / isInsideActiveWindow ────
+    //
+    // Compartilhadas por TODOS os caminhos que produzem datas futuras
+    // (scheduler, HomeViewModel, BootReceiver) — regressão aqui rearmaria
+    // alarme em dia inativo ou liberaria Check fora da janela.
+
+    /** Quarta-feira fixa, mesma âncora do DynamicSchedulerUseCaseTest. */
+    private val wednesday: LocalDate = LocalDate.of(2026, 5, 20)
+
+    @Test
+    fun `findNextActiveDate pula dias inativos ate o proximo ativo`() {
+        // Quarta → ativo só sexta e sábado → espera sexta (22/05).
+        val result = findNextActiveDate(
+            after = wednesday,
+            activeDaysOfWeek = setOf(DayOfWeek.FRIDAY, DayOfWeek.SATURDAY),
+        )
+
+        assertEquals(LocalDate.of(2026, 5, 22), result)
+    }
+
+    @Test
+    fun `findNextActiveDate e estritamente depois mesmo quando hoje e ativo`() {
+        // Quarta com quarta ativa → próxima QUARTA (27/05), nunca a própria data.
+        val result = findNextActiveDate(
+            after = wednesday,
+            activeDaysOfWeek = setOf(DayOfWeek.WEDNESDAY),
+        )
+
+        assertEquals(LocalDate.of(2026, 5, 27), result)
+    }
+
+    @Test
+    fun `findNextActiveDate com todos os dias inativos cai para after mais um`() {
+        // Config patológica documentada: fallback defensivo para não travar
+        // o scheduler.
+        val result = findNextActiveDate(
+            after = wednesday,
+            activeDaysOfWeek = emptySet(),
+        )
+
+        assertEquals(wednesday.plusDays(1), result)
+    }
+
+    @Test
+    fun `isInsideActiveWindow false em dia inativo mesmo dentro do horario`() {
+        val noonWednesday = wednesday.atTime(12, 0)
+
+        assertTrue(
+            "dia inativo deve vetar mesmo com horário dentro da janela",
+            !isInsideActiveWindow(
+                now = noonWednesday,
+                window = window, // 09:30-18:00
+                activeDays = setOf(DayOfWeek.MONDAY),
+            ),
+        )
+    }
+
+    @Test
+    fun `isInsideActiveWindow true sem janela configurada em dia ativo`() {
+        val threeAm = wednesday.atTime(3, 0)
+
+        assertTrue(
+            "window null = sempre ativo (em dia ativo)",
+            isInsideActiveWindow(now = threeAm, window = null, activeDays = allDays),
+        )
+    }
+
+    @Test
+    fun `isInsideActiveWindow trata bordas da janela como inclusivas`() {
+        // Pina o comportamento atual: startTime e endTime são INCLUSIVOS
+        // (!isBefore && !isAfter). O engine de agendamento trata endTime como
+        // exclusivo — assimetria conhecida de 1 minuto; mudar este contrato
+        // exige revisitar canCheck/overshoot gating.
+        val atStart = wednesday.atTime(9, 30)
+        val atEnd = wednesday.atTime(18, 0)
+        val pastEnd = wednesday.atTime(18, 1)
+
+        assertTrue(isInsideActiveWindow(atStart, window, allDays))
+        assertTrue(isInsideActiveWindow(atEnd, window, allDays))
+        assertTrue(!isInsideActiveWindow(pastEnd, window, allDays))
+    }
 }

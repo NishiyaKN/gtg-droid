@@ -140,6 +140,11 @@ class AlarmViewModelTest {
                 targetReps = barra.targetReps,
             )
         }
+        // U16a: Check via full-screen é Check real — move a âncora de cadência
+        // e encerra a cadeia de alerta. Pina as escritas para que um refactor
+        // não remova silenciosamente nenhuma das duas.
+        verify(exactly = 1) { sessionPrefs.setLastCheck(any()) }
+        verify(exactly = 1) { sessionPrefs.setFirstAlarmInChain(0L) }
     }
 
     @Test
@@ -267,6 +272,12 @@ class AlarmViewModelTest {
             "snooze trigger ($captured) deveria estar entre $expectedMin e $expectedMax",
             !captured.captured.isBefore(expectedMin) && !captured.captured.isAfter(expectedMax),
         )
+        // Snooze same-day NÃO encerra a cadeia — o T0 do contador continua
+        // válido. Guard de meia-noite: se o candidato cruzou a data (teste
+        // rodando <7min antes de 00:00), o reset É esperado e o pin não vale.
+        if (captured.captured.toLocalDate() == before.toLocalDate()) {
+            verify(exactly = 0) { sessionPrefs.setFirstAlarmInChain(any()) }
+        }
     }
 
     @Test
@@ -349,6 +360,38 @@ class AlarmViewModelTest {
             captured.captured.toLocalDate().isAfter(now.toLocalDate()) &&
                 captured.captured.toLocalTime() == LocalTime.of(8, 0),
         )
+        // Rollover cross-day encerra a cadeia atual — sem este reset o
+        // contador exibiria "+14h+" ao abrir a Home no dia seguinte.
+        verify(exactly = 1) { sessionPrefs.setFirstAlarmInChain(0L) }
+    }
+
+    @Test
+    fun `performSnooze que cruza a meia-noite faz rollover em vez de armar de madrugada`() = runTest {
+        // Regressão do fix snooze-midnight: candidato em D+1 passava no check
+        // de time-of-day (que ignora a DATA) e armava alarme noturno antes do
+        // início da janela. overshootRepeatMinutes=1440 (24h) força o
+        // candidato a cruzar a data de forma determinística em qualquer
+        // horário de execução do teste.
+        every { sessionPrefs.overshootRepeatMinutes } returns 1440
+        coEvery { activityWindowRepository.getActiveWindow() } returns ActivityWindow(
+            id = 1L,
+            startTime = LocalTime.of(8, 0),
+            endTime = LocalTime.of(23, 59),
+        )
+        val captured = slot<LocalDateTime>()
+        val vm = buildViewModel()
+
+        vm.performSnooze()
+        advanceUntilIdle()
+
+        verify(exactly = 1) {
+            alarmScheduler.schedule(triggerAt = capture(captured), any(), any(), any())
+        }
+        val tomorrow = LocalDateTime.now().toLocalDate().plusDays(1)
+        // Âncora do rollover é HOJE: o alvo é AMANHÃ às 08:00 (não D+2, que
+        // seria o resultado de ancorar em candidateDate).
+        assertEquals(tomorrow.atTime(8, 0), captured.captured)
+        verify(exactly = 1) { sessionPrefs.setFirstAlarmInChain(0L) }
     }
 
     @Test

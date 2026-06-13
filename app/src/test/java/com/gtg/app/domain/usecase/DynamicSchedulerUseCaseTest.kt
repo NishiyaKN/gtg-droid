@@ -103,7 +103,8 @@ class DynamicSchedulerUseCaseTest {
     fun `DYNAMIC com bloco colidindo desvia para fora do bloco`() {
         val checkTime = wednesday.atTime(10, 0)
         // candidate = 10:45 cai dentro de 10:30-11:30 (15min após o início).
-        // INACTIVITY_PROXIMITY_MINUTES=15 → "mid-block" → adia para 11:35.
+        // INACTIVITY_PROXIMITY_MINUTES=15 → "mid-block" (Caso B) → adia para
+        // fim do bloco + buffer = 11:30 + 5min = 11:35 exato.
         val blocks = listOf(lunchBlock(LocalTime.of(10, 30), LocalTime.of(11, 30)))
 
         val result = useCase.evaluateWithDependencies(
@@ -115,11 +116,52 @@ class DynamicSchedulerUseCaseTest {
             deps = deps(blocks),
         )
 
-        val ten45 = wednesday.atTime(10, 45)
-        assertTrue(
-            "DYNAMIC deveria ajustar para fora de 10:45 (estava em $result)",
-            result != ScheduleResult.Scheduled(ten45),
+        assertEquals(ScheduleResult.Scheduled(wednesday.atTime(11, 35)), result)
+    }
+
+    // ── Caso A: candidato perto do INÍCIO do bloco antecipa ─────────
+
+    @Test
+    fun `DYNAMIC perto do inicio do bloco antecipa para inicio menos buffer`() {
+        val checkTime = wednesday.atTime(10, 0)
+        // candidate = 10:45 cai em 10:40-11:30 com minutesPastStart=5 (<15)
+        // → Caso A: antecipa para blockStart - 5min = 10:35.
+        // earliestAllowed = now + 20 = 10:20 ≤ 10:35 e 10:35 ≥ windowStart
+        // (08:00) → antecipação é válida.
+        val blocks = listOf(lunchBlock(LocalTime.of(10, 40), LocalTime.of(11, 30)))
+
+        val result = useCase.evaluateWithDependencies(
+            checkTime = checkTime,
+            baseIntervalMinutes = 45L,
+            now = checkTime,
+            activeDaysOfWeek = weekdays,
+            intervalMode = IntervalMode.DYNAMIC,
+            deps = deps(blocks),
         )
+
+        assertEquals(ScheduleResult.Scheduled(wednesday.atTime(10, 35)), result)
+    }
+
+    @Test
+    fun `DYNAMIC Caso A sem espaco para antecipar adia para fim do bloco`() {
+        val checkTime = wednesday.atTime(10, 0)
+        // now = 10:30 → earliestAllowed = 10:50; candidate 10:45 é clampado
+        // para 10:50 (regra 3), que cai em 10:40-11:30 com minutesPastStart=10
+        // (<15) → Caso A; antecipado 10:35 VIOLARIA o descanso mínimo
+        // (10:35 < 10:50) → fallback: fim do bloco + buffer = 11:35.
+        val now = wednesday.atTime(10, 30)
+        val blocks = listOf(lunchBlock(LocalTime.of(10, 40), LocalTime.of(11, 30)))
+
+        val result = useCase.evaluateWithDependencies(
+            checkTime = checkTime,
+            baseIntervalMinutes = 45L,
+            now = now,
+            activeDaysOfWeek = weekdays,
+            intervalMode = IntervalMode.DYNAMIC,
+            deps = deps(blocks),
+        )
+
+        assertEquals(ScheduleResult.Scheduled(wednesday.atTime(11, 35)), result)
     }
 
     // ── AE8: STRICT respeita fim de janela ──────────────────────────

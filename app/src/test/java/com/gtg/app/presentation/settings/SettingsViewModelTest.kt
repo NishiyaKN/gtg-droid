@@ -8,6 +8,7 @@ import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.domain.repository.ActivityWindowRepository
 import com.gtg.app.domain.repository.CalendarEventRepository
 import io.mockk.coEvery
+import io.mockk.coVerify
 import io.mockk.every
 import io.mockk.mockk
 import io.mockk.mockkStatic
@@ -113,6 +114,52 @@ class SettingsViewModelTest {
         assert(state.showDailyTarget) {
             "Esperava state.showDailyTarget=true após observeChanges propagar"
         }
+    }
+
+    @Test
+    fun `saveWindow com inicio igual ao fim seta windowError e nao persiste`() = runTest {
+        val vm = buildViewModel()
+        advanceUntilIdle()
+
+        vm.updateWindowStart(10, 0)
+        vm.updateWindowEnd(10, 0)
+        vm.saveWindow()
+        advanceUntilIdle()
+
+        assert(vm.state.value.windowError != null) {
+            "saveWindow com start==end deveria popular windowError"
+        }
+        coVerify(exactly = 0) { activityWindowRepository.save(any()) }
+    }
+
+    @Test
+    fun `saveWindow com inicio depois do fim seta windowError e nao persiste`() = runTest {
+        val vm = buildViewModel()
+        advanceUntilIdle()
+
+        vm.updateWindowStart(18, 0)
+        vm.updateWindowEnd(8, 0)
+        vm.saveWindow()
+        advanceUntilIdle()
+
+        assert(vm.state.value.windowError != null) {
+            "saveWindow com janela invertida deveria popular windowError"
+        }
+        coVerify(exactly = 0) { activityWindowRepository.save(any()) }
+    }
+
+    @Test
+    fun `desligar a ultima modalidade ativa e no-op no storage`() = runTest {
+        // Mocks relaxed → soundEnabled/visualEnabled/vibrationEnabled = false
+        // no state. Desligar som nesse estado deixaria as 3 em OFF → o guard
+        // at-least-one-ON rejeita SEM escrever em SharedPreferences (o Switch
+        // volta para ON via observe).
+        val vm = buildViewModel()
+        advanceUntilIdle()
+
+        vm.setSoundEnabled(false)
+
+        verify(exactly = 0) { sessionPrefs.setSoundEnabled(any()) }
     }
 
     @Test
