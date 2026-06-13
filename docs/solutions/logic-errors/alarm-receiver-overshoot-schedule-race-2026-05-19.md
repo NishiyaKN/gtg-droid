@@ -200,6 +200,17 @@ e `notify`, ou mover o `scheduleOvershoot` para depois do `notify`. O guard
 fica inteiro ANTES do par resource+gate, nunca no meio. Quem for mexer no
 `handleDispatch` deve preservar esse sanduíche.
 
+**Atualização 2026-06-12**: a zona de guards pré-gate ganhou um terceiro
+membro — além do guard de fim de janela e do block guard, há agora um guard
+de **pré-início de janela** (`now < windowStartToday` → suprime e rearma o
+primary no início resolvido da janela; overshoot é dropado), introduzido pelo
+fix do snooze cross-midnight (commits `abd7c44`/`1104b72`). Ele vive na mesma
+posição segura (antes do par resource+gate) e segue a mesma política do block
+guard (sub-budget + fail-open para Ring). Ver
+`docs/solutions/logic-errors/snooze-cross-midnight-time-of-day-2026-06-12.md`.
+A sequência de guards no `handleDispatch` é hoje: janela nula → fim de
+janela → pré-início de janela → block guard → resource+gate.
+
 ## Related Issues
 
 - Doc relacionado: `docs/solutions/logic-errors/active-days-alarm-bypass-2026-05-16.md` — família de bugs do pipeline AlarmManager. Bug E (5º writer) foi encontrado na mesma sessão de code review.

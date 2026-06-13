@@ -1,7 +1,7 @@
 ---
 title: "Cadence anchor (lastCheckMillis) records only real user Checks, not reschedules"
 date: 2026-05-19
-last_updated: 2026-05-20
+last_updated: 2026-06-12
 category: architecture-patterns
 module: scheduler
 problem_type: architecture_pattern
@@ -45,9 +45,11 @@ A implementação fez exatamente o **oposto** do intuído. Snoozar às 14:00, mu
 - `lastCheck` → "o usuário concluiu um set neste momento" — base para `rescheduleFromAnchor`, regra 3 (descanso mínimo 20min), eventuais analytics de adesão.
 - `setNextAlarm` → "o sistema agendou um alarme para H:MM" — base para o countdown da Home, decisões de roll-over de fim de janela.
 
-Snooze, BootReceiver e re-agendamentos automáticos atualizam `setNextAlarm` (o **plano** do scheduler), mas **não** `setLastCheck` (a **história** do usuário). Só `startSession` e `performManualCheck` atualizam `setLastCheck`.
+Snooze, BootReceiver e re-agendamentos automáticos atualizam `setNextAlarm` (o **plano** do scheduler), mas **não** `setLastCheck` (a **história** do usuário). Só `startSession`, `performManualCheck` e `AlarmViewModel.performCheck` (Check via full-screen — desde o fix U16a) atualizam `setLastCheck`.
 
-**Verificado em 2026-05-20**: `performCheck` na full-screen (`AlarmViewModel.kt:75-101`) **NÃO** chama `setLastCheck` no código atual, contrariando o que o exemplo "CERTO" abaixo prescreve. Esse delta entre intenção documentada e código real foi descoberto durante o brainstorm/plan do lote `2026-05-20-001` quando o brainstorm assumiu (errado) que o Check via full-screen re-âncora a cadência. **Trade-off observado**: em modo de intervalo estrito (planejado em U16 daquele plano), Check via full-screen sem `setLastCheck` deixa âncora antiga; `rescheduleFromAnchor` mid-sessão usaria `lastCheck` do startSession (ou último `performManualCheck`), drift de cadência. Fix previsto na sub-unit U16a do plano `2026-05-20-001-feat-post-testing-batch-plan.md` — adicionar `sessionPrefs.setLastCheck(nowMillis)` em `AlarmViewModel.performCheck` logo após o `exerciseLogRepository.insert(...)`. O exemplo de código abaixo então passa a refletir o estado real.
+**Verificado em 2026-05-20**: `performCheck` na full-screen (`AlarmViewModel.kt:75-101`) **NÃO** chama `setLastCheck` no código atual, contrariando o que o exemplo "CERTO" abaixo prescreve. Esse delta entre intenção documentada e código real foi descoberto durante o brainstorm/plan do lote `2026-05-20-001` quando o brainstorm assumiu (errado) que o Check via full-screen re-âncora a cadência. **Trade-off observado**: em modo de intervalo estrito (planejado em U16 daquele plano), Check via full-screen sem `setLastCheck` deixa âncora antiga; `rescheduleFromAnchor` mid-sessão usaria `lastCheck` do startSession (ou último `performManualCheck`), drift de cadência. Fix previsto na sub-unit U16a do plano `2026-05-20-001-feat-post-testing-batch-plan.md` — adicionar `sessionPrefs.setLastCheck(nowMillis)` em `AlarmViewModel.performCheck` logo após o `exerciseLogRepository.insert(...)`.
+
+**Resolvido (verificado em 2026-06-12)**: o fix U16a FOI aplicado — `performCheck` chama `sessionPrefs.setLastCheck(nowMillis)` (o comentário no código cita "U16a do lote 2026-05-20") e em seguida `setFirstAlarmInChain(0L)`. Ambas as escritas estão pinadas por teste em `AlarmViewModelTest` (`performCheck cancela overshoot e rotaciona exercicio`). O exemplo "CERTO" abaixo reflete o estado real do código.
 
 ```kotlin
 // CERTO — Check real move a âncora

@@ -266,7 +266,7 @@ A grep original buscou só `calculateNextAlarm|dynamicScheduler|DynamicScheduler
 Ao adicionar qualquer novo caminho de agendamento que bypasse o use-case (por decisão intencional — ex: snooze que não deve passar pelas 5 regras), liste explicitamente cada garantia do use case e decida "aplicar" (replicar inline) ou "omitir" (documentar o motivo):
 
 - `activeDaysOfWeek`: `candidate.dayOfWeek` está no conjunto ativo?
-- `ActivityWindow.endTime`: `candidate.toLocalTime()` está antes do fim da janela?
+- `ActivityWindow.endTime`: o candidato está antes do fim da janela **E na mesma data**? (Comparar só `candidate.toLocalTime()` descarta a data — um snooze que cruza a meia-noite passa no check e arma alarme de madrugada. Fix 2026-06-12: o fast path exige `candidateDate == today`, e o rollover ancora `findNextActiveDate` em `today`, não em `candidateDate` — a busca é estritamente-depois e ancorar no candidato D+1 pularia para D+2. Ver `docs/solutions/logic-errors/snooze-cross-midnight-time-of-day-2026-06-12.md`.)
 - Regra 3 (descanso mínimo 20min): aplicar? (Snooze: NÃO — empurraria snooze=5min para 20min.)
 - Atualização de `lastCheckMillis`: aplicar? (Snooze: NÃO — ver `docs/solutions/architecture-patterns/cadence-anchor-vs-reschedule-anchor-2026-05-19.md`.)
 - Blocos de inatividade (Regra 4): aplicar? (Rollover: SIM, via resolver — ver `docs/solutions/logic-errors/window-start-block-bypass-2026-06-12.md`; a ausência dos blocos NESTE checklist foi como aquele bug nasceu.)
