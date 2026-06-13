@@ -13,6 +13,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.DayOfWeek
@@ -61,6 +63,8 @@ data class ScheduleUiState(
     val dialogAllDay: Boolean = false,
     /** Se não-null, editando; se null, criando. */
     val editingBlock: InactivityBlock? = null,
+    /** Erro de validação do dialog (início ≥ fim, WEEKLY sem dias). */
+    val dialogError: String? = null,
 
     // ── Calendário ───────────────────────────────────────────────
     val selectedTab: ScheduleTab = ScheduleTab.CALENDAR,
@@ -93,10 +97,25 @@ class ScheduleViewModel @Inject constructor(
         // sem conflate disparávamos loadCalendarBlocks (acessa CalendarContract
         // — relativamente caro) uma vez por chave; com conflate, processamos
         // só a última emissão de cada burst.
+        // .map para as chaves que o pipeline de calendário realmente consome
+        // + distinctUntilChanged: sem isso, QUALQUER escrita em SharedPreferences
+        // (mudança de intervalo, toggle de som, lastCheck...) disparava uma
+        // chamada binder cross-process ao CalendarProvider.
         viewModelScope.launch {
-            sessionPrefs.observeChanges().conflate().collect {
-                loadCalendarBlocks(_state.value.calendarMonth)
-            }
+            sessionPrefs.observeChanges()
+                .map {
+                    listOf(
+                        sessionPrefs.calendarIntegrationEnabled,
+                        sessionPrefs.calendarSelectedIds,
+                        sessionPrefs.calendarOverriddenEventIds,
+                        sessionPrefs.calendarShowTitles,
+                    )
+                }
+                .distinctUntilChanged()
+                .conflate()
+                .collect {
+                    loadCalendarBlocks(_state.value.calendarMonth)
+                }
         }
     }
 
@@ -178,25 +197,31 @@ class ScheduleViewModel @Inject constructor(
     }
 
     fun dismissDialog() {
-        _state.update { it.copy(showDialog = false) }
+        _state.update { it.copy(showDialog = false, dialogError = null) }
     }
 
     fun updateTitle(v: String) = _state.update { it.copy(dialogTitle = v) }
-    fun updateStartTime(h: Int, m: Int) = _state.update { it.copy(dialogStartHour = h, dialogStartMinute = m) }
-    fun updateEndTime(h: Int, m: Int) = _state.update { it.copy(dialogEndHour = h, dialogEndMinute = m) }
-    fun updateRecurrence(r: Recurrence) = _state.update { it.copy(dialogRecurrence = r) }
+    fun updateStartTime(h: Int, m: Int) =
+        _state.update { it.copy(dialogStartHour = h, dialogStartMinute = m, dialogError = null) }
+    fun updateEndTime(h: Int, m: Int) =
+        _state.update { it.copy(dialogEndHour = h, dialogEndMinute = m, dialogError = null) }
+    fun updateRecurrence(r: Recurrence) =
+        _state.update { it.copy(dialogRecurrence = r, dialogError = null) }
     fun updateDate(d: LocalDate) = _state.update { it.copy(dialogDate = d) }
     fun updateDayOfMonth(d: Int) = _state.update { it.copy(dialogDayOfMonth = d.coerceIn(1, 31)) }
 
     fun toggleWeekDay(day: DayOfWeek) {
         _state.update { s ->
             val current = s.dialogWeekDays
-            s.copy(dialogWeekDays = if (day in current) current - day else current + day)
+            s.copy(
+                dialogWeekDays = if (day in current) current - day else current + day,
+                dialogError = null,
+            )
         }
     }
 
     fun setAllDay(allDay: Boolean) {
-        _state.update { it.copy(dialogAllDay = allDay) }
+        _state.update { it.copy(dialogAllDay = allDay, dialogError = null) }
     }
 
     // ── Persistência ─────────────────────────────────────────────
@@ -216,6 +241,19 @@ class ScheduleViewModel @Inject constructor(
             LocalTime.of(s.dialogEndHour, s.dialogEndMinute)
         }
 
+        // Validação espelhando SettingsViewModel.saveWindow: um bloco
+        // invertido/vazio persiste mas NUNCA casa com o predicado de colisão
+        // (candidate >= start && candidate < end) — o alarme tocaria dentro de
+        // um horário que o usuário acredita estar bloqueado, sem nenhum aviso.
+        if (!s.dialogAllDay && !startTime.isBefore(endTime)) {
+            _state.update { it.copy(dialogError = "O início deve ser antes do fim.") }
+            return
+        }
+        if (s.dialogRecurrence == Recurrence.WEEKLY && s.dialogWeekDays.isEmpty()) {
+            _state.update { it.copy(dialogError = "Selecione ao menos um dia da semana.") }
+            return
+        }
+
         val block = InactivityBlock(
             id = s.editingBlock?.id ?: 0,
             title = s.dialogTitle.trim().ifBlank { if (s.dialogAllDay) "Indisponível" else "Bloco" },
@@ -229,7 +267,7 @@ class ScheduleViewModel @Inject constructor(
 
         viewModelScope.launch {
             if (s.editingBlock != null) repository.update(block) else repository.insert(block)
-            _state.update { it.copy(showDialog = false) }
+            _state.update { it.copy(showDialog = false, dialogError = null) }
         }
     }
 

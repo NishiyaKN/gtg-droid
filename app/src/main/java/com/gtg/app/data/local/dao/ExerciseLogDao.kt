@@ -18,6 +18,15 @@ interface ExerciseLogDao {
     @Query("SELECT * FROM exercise_logs ORDER BY timestamp DESC")
     fun observeAll(): Flow<List<ExerciseLogEntity>>
 
+    /**
+     * Sinal de mudança barato para observers que só precisam saber QUE a
+     * tabela mudou (Home/Statistics recarregam via queries agregadas próprias).
+     * observeAll() deserializava a tabela inteira a cada insert só para
+     * descartar o payload.
+     */
+    @Query("SELECT COUNT(*) FROM exercise_logs")
+    fun observeCount(): Flow<Int>
+
     /** Logs de um dia específico (timestamps em epoch millis UTC). */
     @Query("SELECT * FROM exercise_logs WHERE timestamp >= :dayStartMillis AND timestamp < :dayEndMillis ORDER BY timestamp ASC")
     suspend fun getLogsForDay(dayStartMillis: Long, dayEndMillis: Long): List<ExerciseLogEntity>

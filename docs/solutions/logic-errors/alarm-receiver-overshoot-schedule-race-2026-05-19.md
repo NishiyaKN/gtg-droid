@@ -163,6 +163,54 @@ verifyOrder {
 }
 ```
 
+## Amendment (2026-06-11): block guard fire-time roda ANTES do scheduleOvershoot
+
+O fix window-start-calendar-block introduziu um guard de blocos no
+`handleDispatch`: antes de construir a notificação, o receiver consulta os
+blocos do dia (manual + Calendar, sub-budget de 2s com fail-open para Ring)
+e pode **suprimir** o disparo — sem notify, sem overshoot, sem som — rearmando
+o alarme para o fim do cluster + buffer.
+
+À primeira leitura isso parece violar a regra "resources antes do gate",
+porque introduz I/O suspenso (Room + CalendarProvider) antes do
+`scheduleOvershoot`. Não viola — a invariante protege contra um race que
+**exige a notificação visível**: o usuário só pode tocar Check/Snooze (e a
+`AlarmActivity` só pode chamar `cancelOvershoot`) depois do `notify()`.
+
+O argumento "nenhuma notificação existe ainda" vale integralmente para
+**disparos primary** — DESTE dispatch nada foi publicado. Para **disparos de
+overshoot**, a notificação do primary anterior pode já estar visível e a
+`AlarmActivity` pode estar aberta — o guard alarga a janela entre o disparo
+e o `scheduleOvershoot` deste dispatch em até 2s. A mitigação é o gate em
+`isAlarmPending` no caminho de supressão do overshoot: qualquer Check/Snooze
+/dismiss concorrente zera o flag (e cancela o overshoot) ANTES do re-arme, e
+um overshoot fantasma já in-flight no momento do cancel não rearma. A regra
+correta, refinada:
+
+```text
+[window guard / block guard — pode retornar sem tocar; nenhum gate aberto]
+alarmScheduler.scheduleOvershoot(...)   // resource — imediatamente antes do gate
+NotificationManagerCompat.notify(...)   // gate: separa fluxos
+sessionPrefs.recordAlarmDispatchedNow() // estado visível pós-gate
+AlarmSoundPlayer.play(...)              // I/O auxiliar por último
+```
+
+O que continua proibido: inserir I/O bloqueante **entre** `scheduleOvershoot`
+e `notify`, ou mover o `scheduleOvershoot` para depois do `notify`. O guard
+fica inteiro ANTES do par resource+gate, nunca no meio. Quem for mexer no
+`handleDispatch` deve preservar esse sanduíche.
+
+**Atualização 2026-06-12**: a zona de guards pré-gate ganhou um terceiro
+membro — além do guard de fim de janela e do block guard, há agora um guard
+de **pré-início de janela** (`now < windowStartToday` → suprime e rearma o
+primary no início resolvido da janela; overshoot é dropado), introduzido pelo
+fix do snooze cross-midnight (commits `abd7c44`/`1104b72`). Ele vive na mesma
+posição segura (antes do par resource+gate) e segue a mesma política do block
+guard (sub-budget + fail-open para Ring). Ver
+`docs/solutions/logic-errors/snooze-cross-midnight-time-of-day-2026-06-12.md`.
+A sequência de guards no `handleDispatch` é hoje: janela nula → fim de
+janela → pré-início de janela → block guard → resource+gate.
+
 ## Related Issues
 
 - Doc relacionado: `docs/solutions/logic-errors/active-days-alarm-bypass-2026-05-16.md` — família de bugs do pipeline AlarmManager. Bug E (5º writer) foi encontrado na mesma sessão de code review.

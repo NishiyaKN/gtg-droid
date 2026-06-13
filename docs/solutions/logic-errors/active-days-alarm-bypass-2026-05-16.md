@@ -266,16 +266,19 @@ A grep original buscou só `calculateNextAlarm|dynamicScheduler|DynamicScheduler
 Ao adicionar qualquer novo caminho de agendamento que bypasse o use-case (por decisão intencional — ex: snooze que não deve passar pelas 5 regras), liste explicitamente cada garantia do use case e decida "aplicar" (replicar inline) ou "omitir" (documentar o motivo):
 
 - `activeDaysOfWeek`: `candidate.dayOfWeek` está no conjunto ativo?
-- `ActivityWindow.endTime`: `candidate.toLocalTime()` está antes do fim da janela?
+- `ActivityWindow.endTime`: o candidato está antes do fim da janela **E na mesma data**? (Comparar só `candidate.toLocalTime()` descarta a data — um snooze que cruza a meia-noite passa no check e arma alarme de madrugada. Fix 2026-06-12: o fast path exige `candidateDate == today`, e o rollover ancora `findNextActiveDate` em `today`, não em `candidateDate` — a busca é estritamente-depois e ancorar no candidato D+1 pularia para D+2. Ver `docs/solutions/logic-errors/snooze-cross-midnight-time-of-day-2026-06-12.md`.)
 - Regra 3 (descanso mínimo 20min): aplicar? (Snooze: NÃO — empurraria snooze=5min para 20min.)
-- Atualização de `lastCheckMillis`: aplicar? (Snooze: NÃO — ver `docs/solutions/concurrency/alarm-pipeline-race-and-anchor-pitfalls.md`.)
+- Atualização de `lastCheckMillis`: aplicar? (Snooze: NÃO — ver `docs/solutions/architecture-patterns/cadence-anchor-vs-reschedule-anchor-2026-05-19.md`.)
+- Blocos de inatividade (Regra 4): aplicar? (Rollover: SIM, via resolver — ver `docs/solutions/logic-errors/window-start-block-bypass-2026-06-12.md`; a ausência dos blocos NESTE checklist foi como aquele bug nasceu.)
 
-Se `activeDaysOfWeek` ou `endTime` falham, aplique rollover via `findNextActiveDate` + `window.startTime`. Omissão silenciosa é a raiz de todos os bugs desta família.
+Se `activeDaysOfWeek` ou `endTime` falham, aplique rollover via `findNextActiveDate` + `window.startTime` (desde 2026-06-12: via `resolveFirstAlarmStartingAt`, que aplica blocos por cima). Omissão silenciosa é a raiz de todos os bugs desta família.
 
 ## Related Issues
 
 - Repo: `NishiyaKN/gtg-droid` no GitHub. Sem issues relacionadas registradas.
 - Commits: `d0d3e39` (introdução de `activeDaysOfWeek`), `5fc4f0b` (fix dos 4 caminhos), `a6d305f` (refinamentos pós code-review), `693575a` (Bug E — snooze respeita activeDaysOfWeek e ActivityWindow).
-- Doc relacionado: `docs/solutions/concurrency/alarm-pipeline-race-and-anchor-pitfalls.md` — race entre `AlarmReceiver.scheduleOvershoot` e `AlarmActivity.cancelOvershoot` + pitfall de `setLastCheck` no snooze. Bugs encontrados na mesma sessão de code review 2026-05-19.
+- Docs relacionados (nota 2026-06-12: o arquivo `docs/solutions/concurrency/alarm-pipeline-race-and-anchor-pitfalls.md` citado em versões anteriores nunca existiu — o conteúdo vive em dois docs): `docs/solutions/logic-errors/alarm-receiver-overshoot-schedule-race-2026-05-19.md` — race entre `AlarmReceiver.scheduleOvershoot` e `AlarmActivity.cancelOvershoot`; `docs/solutions/architecture-patterns/cadence-anchor-vs-reschedule-anchor-2026-05-19.md` — pitfall de `setLastCheck` no snooze. Bugs encontrados na mesma sessão de code review 2026-05-19.
+- Segunda instância da família (2026-06-12): o filtro de BLOCOS sofreu o mesmo bypass nos writers de rollover — ver `docs/solutions/logic-errors/window-start-block-bypass-2026-06-12.md` (resolver compartilhado + guard fire-time).
 - Plano deferido: revalidação de `ActivityWindow` + `InactivityBlocks` no `BootReceiver` quando o dia é shiftado. Requer `goAsync()` + injeção de `DynamicSchedulerUseCase` no receiver — refactor com escopo próprio.
   - **Update 2026-05-22:** O pattern `goAsync() + withTimeout + SupervisorJob` foi estabelecido em `AlarmReceiver` (PR #3, commit `e2fe223`). Ver `docs/solutions/architecture-patterns/alarm-receiver-goasync-coroutine-room-2026-05-22.md` para o template — o `BootReceiver` revalidation deferred aqui pode ser construído em cima dessa fundação.
+  - **Update 2026-06-12:** Parcialmente fechado pelo fix window-start-block-bypass: o guard fire-time no `AlarmReceiver` re-valida blocos no DISPARO de qualquer alarme DYNAMIC (incluindo replays do `BootReceiver`), tornando a revalidação de blocos no boot redundante. O que resta do item original: revalidar `ActivityWindow`/dia ativo no próprio boot (o replay verbatim segue sem rota pelo resolver — `resolveFirstAlarmStartingAt` é o hook pronto se for retomado).

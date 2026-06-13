@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.gtg.app.presentation.theme.GtgBackground
 import com.gtg.app.presentation.theme.GtgPrimary
 import com.gtg.app.presentation.theme.GtgSurfaceVariant
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -176,7 +177,7 @@ fun WheelNumberPicker(
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color(0xFF121212), Color.Transparent),
+                        listOf(GtgBackground, Color.Transparent),
                     ),
                 ),
         )
@@ -187,7 +188,7 @@ fun WheelNumberPicker(
                 .align(Alignment.BottomCenter)
                 .background(
                     Brush.verticalGradient(
-                        listOf(Color.Transparent, Color(0xFF121212)),
+                        listOf(Color.Transparent, GtgBackground),
                     ),
                 ),
         )

@@ -60,6 +60,7 @@ import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.presentation.navigation.GtgNavHost
 import com.gtg.app.presentation.onboarding.OnboardingHost
 import com.gtg.app.presentation.theme.GtgPrimary
+import com.gtg.app.presentation.theme.GtgSuccess
 import com.gtg.app.presentation.theme.GtgSurface
 import com.gtg.app.presentation.theme.GtgSurfaceVariant
 import com.gtg.app.presentation.theme.GtgTheme
@@ -393,7 +394,7 @@ private fun PermissionCard(
             Icon(
                 imageVector = if (granted) Icons.Default.CheckCircle else icon,
                 contentDescription = null,
-                tint = if (granted) Color(0xFF4CAF50) else GtgPrimary,
+                tint = if (granted) GtgSuccess else GtgPrimary,
                 modifier = Modifier.size(32.dp),
             )
 

@@ -22,6 +22,8 @@ class ExerciseLogRepositoryImpl @Inject constructor(
     override fun observeAll(): Flow<List<ExerciseLog>> =
         dao.observeAll().map { list -> list.map { it.toDomain() } }
 
+    override fun observeCount(): Flow<Int> = dao.observeCount()
+
     override fun observeByExercise(exerciseId: Long): Flow<List<ExerciseLog>> =
         dao.observeByExercise(exerciseId).map { list -> list.map { it.toDomain() } }
 
