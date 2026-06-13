@@ -1,5 +1,6 @@
 package com.gtg.app.data.local
 
+import androidx.room.AutoMigration
 import androidx.room.Database
 import androidx.room.RoomDatabase
 import androidx.room.TypeConverters
@@ -20,8 +21,13 @@ import com.gtg.app.data.local.entity.InactivityBlockEntity
         ActivityWindowEntity::class,
         InactivityBlockEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = true,
+    // Migrações automáticas a partir dos schemas exportados em app/schemas/.
+    // v1→v2: índice em exercise_logs.timestamp (additivo, auto-migrável).
+    autoMigrations = [
+        AutoMigration(from = 1, to = 2),
+    ],
 )
 @TypeConverters(Converters::class)
 abstract class GtgDatabase : RoomDatabase() {

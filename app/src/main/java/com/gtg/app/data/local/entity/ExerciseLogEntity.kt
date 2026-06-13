@@ -16,7 +16,10 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.CASCADE,
         ),
     ],
-    indices = [Index("exercise_id")],
+    // Index em timestamp: StatisticsViewModel dispara 13 queries com range
+    // WHERE timestamp >= :start AND timestamp < :end a cada mudança de log —
+    // sem o índice, cada uma é full scan.
+    indices = [Index("exercise_id"), Index("timestamp")],
 )
 data class ExerciseLogEntity(
     @PrimaryKey(autoGenerate = true)
