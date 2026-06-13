@@ -360,6 +360,20 @@ private fun CalendarMonthView(
             .let { if (it < 0) it + 7 else it }
         val gridStart = firstOfMonth.minusDays(mondayOffset.toLong())
 
+        // Marcadores pré-computados uma vez por (blocks, mês): sem o remember,
+        // cada recomposição varria a lista de blocos 2x por célula (42 células
+        // × n blocos). DayCell consulta os sets em O(1).
+        val (fullDayDates, partialDates) = remember(blocks, month) {
+            val fullDay = HashSet<LocalDate>()
+            val partial = HashSet<LocalDate>()
+            repeat(42) { i ->
+                val date = gridStart.plusDays(i.toLong())
+                if (hasFullDayMarker(blocks, date)) fullDay.add(date)
+                if (hasPartialMarker(blocks, date)) partial.add(date)
+            }
+            fullDay to partial
+        }
+
         repeat(6) { rowIndex ->
             Row(modifier = Modifier.fillMaxWidth()) {
                 repeat(7) { colIndex ->
@@ -369,8 +383,8 @@ private fun CalendarMonthView(
                         date = date,
                         inCurrentMonth = date.month == month.month && date.year == month.year,
                         isToday = date == today,
-                        hasFullDayBlock = hasFullDayMarker(blocks, date),
-                        hasPartialBlock = hasPartialMarker(blocks, date) || hasCalendar,
+                        hasFullDayBlock = date in fullDayDates,
+                        hasPartialBlock = date in partialDates || hasCalendar,
                         modifier = Modifier.weight(1f),
                         onClick = { onDayClick(date) },
                     )
@@ -1029,6 +1043,15 @@ private fun BlockDialog(state: ScheduleUiState, viewModel: ScheduleViewModel) {
                         )
                     }
                     else -> { /* NONE e DAILY não precisam de campos extras */ }
+                }
+
+                if (state.dialogError != null) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = state.dialogError,
+                        color = GtgError,
+                        fontSize = 12.sp,
+                    )
                 }
             }
         },

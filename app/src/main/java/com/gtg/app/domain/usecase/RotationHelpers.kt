@@ -77,6 +77,50 @@ fun isInsideActiveWindow(
     return !time.isBefore(window.startTime) && !time.isAfter(window.endTime)
 }
 
+/**
+ * Converte este [LocalDateTime] para epoch millis no fuso atual do device.
+ *
+ * Compartilhado por todos os caminhos que persistem horário de alarme
+ * (AlarmViewModel, HomeViewModel, BootReceiver e os helpers deste arquivo)
+ * para que a conversão não derive entre call sites.
+ */
+fun LocalDateTime.toEpochMillis(): Long =
+    atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+
+/**
+ * Agenda o alarme PRIMARY no sistema e persiste o estado da sessão.
+ *
+ * Compartilhado entre [com.gtg.app.presentation.alarm.AlarmViewModel] e
+ * [com.gtg.app.presentation.home.HomeViewModel] para que o invariante de
+ * ordem **`schedule` → `setNextAlarm`** viva em um único lugar:
+ * `AlarmSchedulerImpl` engole `SecurityException` silenciosamente, então
+ * persistir antes de agendar deixaria prefs apontando para alarme
+ * inexistente (mesma regra documentada em [rescheduleForNextDay] e no
+ * BootReceiver).
+ */
+fun scheduleAndPersist(
+    alarmScheduler: AlarmScheduler,
+    sessionPrefs: SessionPreferences,
+    nextDateTime: LocalDateTime,
+    exerciseId: Long,
+    exerciseName: String,
+    targetReps: Int,
+) {
+    alarmScheduler.schedule(
+        triggerAt = nextDateTime,
+        exerciseId = exerciseId,
+        exerciseName = exerciseName,
+        targetReps = targetReps,
+    )
+
+    sessionPrefs.setNextAlarm(
+        epochMillis = nextDateTime.toEpochMillis(),
+        exerciseId = exerciseId,
+        exerciseName = exerciseName,
+        targetReps = targetReps,
+    )
+}
+
 private const val ROTATION_HELPERS_TAG = "RotationHelpers"
 
 /**
@@ -174,10 +218,7 @@ suspend fun rescheduleForNextDay(
         )
     }
 
-    val nextMillis = nextDateTime
-        .atZone(ZoneId.systemDefault())
-        .toInstant()
-        .toEpochMilli()
+    val nextMillis = nextDateTime.toEpochMillis()
 
     alarmScheduler.cancel()
     alarmScheduler.cancelOvershoot()
@@ -245,10 +286,7 @@ fun suppressPrimaryInsideBlock(
         return false
     }
 
-    val rearmMillis = rearmAt
-        .atZone(ZoneId.systemDefault())
-        .toInstant()
-        .toEpochMilli()
+    val rearmMillis = rearmAt.toEpochMillis()
 
     alarmScheduler.cancel()
     alarmScheduler.cancelOvershoot()

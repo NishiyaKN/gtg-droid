@@ -118,10 +118,18 @@ class AlarmActivity : ComponentActivity() {
     /**
      * Para o som caso a Activity seja destruída sem passar por Check/Skip
      * (ex: swipe da notificação, back gesture, kill pelo sistema).
+     *
+     * Guard de configuration change: rotação/dark-mode recriam a Activity, e
+     * o teardown incondicional silenciaria PERMANENTEMENTE o alarme em curso —
+     * só o AlarmReceiver inicia as modalidades, e a Activity recriada não as
+     * re-inicia. `isChangingConfigurations` distingue recriação de destruição
+     * real.
      */
     override fun onDestroy() {
-        AlarmSoundPlayer.stop()
-        VibrationPlayer.stop()
+        if (!isChangingConfigurations) {
+            AlarmSoundPlayer.stop()
+            VibrationPlayer.stop()
+        }
         super.onDestroy()
     }
 

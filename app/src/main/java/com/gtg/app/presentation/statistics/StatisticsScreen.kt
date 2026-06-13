@@ -26,6 +26,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -33,6 +34,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -404,6 +406,26 @@ private fun WeeklyBarChart(
     val labelColor = android.graphics.Color.argb(120, 255, 255, 255)
     val maxReps = data.maxOfOrNull { it.totalReps }?.coerceAtLeast(1) ?: 1
 
+    // Paints fora do lambda de draw: o Canvas re-executa o bloco a cada draw
+    // pass, e alocar Paint por frame gera churn de GC na render thread.
+    val density = LocalDensity.current
+    val valuePaint = remember(density) {
+        android.graphics.Paint().apply {
+            color = textColor
+            textSize = with(density) { 11.sp.toPx() }
+            textAlign = android.graphics.Paint.Align.CENTER
+            isAntiAlias = true
+        }
+    }
+    val labelPaint = remember(density) {
+        android.graphics.Paint().apply {
+            color = labelColor
+            textSize = with(density) { 11.sp.toPx() }
+            textAlign = android.graphics.Paint.Align.CENTER
+            isAntiAlias = true
+        }
+    }
+
     Canvas(modifier = modifier) {
         val barCount = data.size
         if (barCount == 0) return@Canvas
@@ -414,19 +436,6 @@ private fun WeeklyBarChart(
         val slotWidth = size.width / barCount
         val barWidth = slotWidth * 0.55f
         val cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx())
-
-        val valuePaint = android.graphics.Paint().apply {
-            color = textColor
-            textSize = 11.sp.toPx()
-            textAlign = android.graphics.Paint.Align.CENTER
-            isAntiAlias = true
-        }
-        val labelPaint = android.graphics.Paint().apply {
-            color = labelColor
-            textSize = 11.sp.toPx()
-            textAlign = android.graphics.Paint.Align.CENTER
-            isAntiAlias = true
-        }
 
         data.forEachIndexed { index, bar ->
             val centerX = slotWidth * index + slotWidth / 2

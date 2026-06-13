@@ -18,6 +18,8 @@ import com.gtg.app.domain.usecase.DynamicSchedulerUseCase
 import com.gtg.app.domain.usecase.FIRST_ALARM_RESOLUTION_BUDGET_MILLIS
 import com.gtg.app.domain.usecase.findNextActiveDate
 import com.gtg.app.domain.usecase.pickNextExerciseInRotation
+import com.gtg.app.domain.usecase.scheduleAndPersist
+import com.gtg.app.domain.usecase.toEpochMillis
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.NonCancellable
@@ -28,7 +30,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDateTime
-import java.time.ZoneId
 import javax.inject.Inject
 
 /**
@@ -97,7 +98,7 @@ class AlarmViewModel @Inject constructor(
                 dismissActiveAlarmSideEffects()
 
                 val now = LocalDateTime.now()
-                val nowMillis = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+                val nowMillis = now.toEpochMillis()
 
                 // 1. Registrar ExerciseLog — guard contra exerciseId inválido
                 // (intent corrompido / extras faltando). Sem isso, inseriríamos
@@ -179,10 +180,7 @@ class AlarmViewModel @Inject constructor(
                 val activeDays = sessionPrefs.activeDaysOfWeek
                 val nextDateTime = clampSnoozeToBounds(rawNextDateTime, activeWindow, activeDays)
 
-                val nextMillis = nextDateTime
-                    .atZone(ZoneId.systemDefault())
-                    .toInstant()
-                    .toEpochMilli()
+                val nextMillis = nextDateTime.toEpochMillis()
 
                 alarmScheduler.cancel()
                 alarmScheduler.schedule(
@@ -228,12 +226,22 @@ class AlarmViewModel @Inject constructor(
         window: ActivityWindow?,
         activeDays: Set<java.time.DayOfWeek>,
     ): LocalDateTime {
+        val today = java.time.LocalDate.now()
         val candidateDate = candidate.toLocalDate()
         val dayOk = candidateDate.dayOfWeek in activeDays
-        val withinWindow = window == null || !candidate.toLocalTime().isAfter(window.endTime)
+        // Fast path exige MESMO dia: um snooze que cruza a meia-noite (ex.:
+        // 23:48 + 15min = 00:03) passaria no check de time-of-day (00:03 não
+        // é "depois de" 23:50) e armaria um alarme noturno antes do início da
+        // janela do dia seguinte — o guard fire-time só valida o FIM da
+        // janela. Cross-midnight cai no rollover via resolver abaixo.
+        val withinWindow = window == null ||
+            (candidateDate == today && !candidate.toLocalTime().isAfter(window.endTime))
         if (dayOk && withinWindow) return candidate
 
-        val nextDate = findNextActiveDate(candidateDate, activeDays)
+        // Âncora do rollover é HOJE, não candidateDate: para um candidato que
+        // já cruzou para D+1, findNextActiveDate(candidateDate) pularia
+        // incorretamente para D+2 (a busca é estritamente "depois de").
+        val nextDate = findNextActiveDate(today, activeDays)
         if (window == null) return nextDate.atTime(java.time.LocalTime.of(0, 0))
 
         // Budget + fallback bare: este caminho roda DEPOIS de
@@ -262,6 +270,10 @@ class AlarmViewModel @Inject constructor(
      */
     private fun dismissActiveAlarmSideEffects() {
         AlarmSoundPlayer.stop()
+        // Vibração também precisa parar aqui: o loop (repeat=0) só termina com
+        // cancel explícito, e a AlarmActivity (cujo onDestroy é o outro stop)
+        // pode nunca ter sido aberta.
+        VibrationPlayer.stop()
         NotificationManagerCompat.from(appContext).cancel(AlarmReceiver.NOTIFICATION_ID)
         alarmScheduler.cancelOvershoot()
     }
@@ -304,25 +316,16 @@ class AlarmViewModel @Inject constructor(
 
     /**
      * Agenda o alarme no sistema e persiste o estado na sessão.
+     * Delegado ao helper compartilhado em RotationHelpers (invariante
+     * `schedule` → `setNextAlarm` centralizado).
      */
-    private fun scheduleAndPersist(nextDateTime: LocalDateTime, exercise: Exercise) {
-        val nextMillis = nextDateTime
-            .atZone(ZoneId.systemDefault())
-            .toInstant()
-            .toEpochMilli()
-
-        alarmScheduler.schedule(
-            triggerAt = nextDateTime,
+    private fun scheduleAndPersist(nextDateTime: LocalDateTime, exercise: Exercise) =
+        scheduleAndPersist(
+            alarmScheduler = alarmScheduler,
+            sessionPrefs = sessionPrefs,
+            nextDateTime = nextDateTime,
             exerciseId = exercise.id,
             exerciseName = exercise.name,
             targetReps = exercise.targetReps,
         )
-
-        sessionPrefs.setNextAlarm(
-            epochMillis = nextMillis,
-            exerciseId = exercise.id,
-            exerciseName = exercise.name,
-            targetReps = exercise.targetReps,
-        )
-    }
 }

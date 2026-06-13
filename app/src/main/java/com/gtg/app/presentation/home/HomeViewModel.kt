@@ -21,8 +21,11 @@ import com.gtg.app.domain.usecase.PreviewTodayRoutineUseCase
 import com.gtg.app.domain.usecase.isInsideActiveWindow
 import com.gtg.app.domain.usecase.pickNextExerciseInRotation
 import com.gtg.app.domain.usecase.rescheduleForNextDay
+import com.gtg.app.domain.usecase.scheduleAndPersist
+import com.gtg.app.domain.usecase.toEpochMillis
 import com.gtg.app.presentation.alarm.AlarmReceiver
 import com.gtg.app.presentation.alarm.AlarmSoundPlayer
+import com.gtg.app.presentation.alarm.VibrationPlayer
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.FlowPreview
@@ -315,8 +318,9 @@ class HomeViewModel @Inject constructor(
      * (inclusive por [AlarmViewModel] em outra Activity).
      */
     private fun observeDailyStats() {
+        // observeCount: o payload era descartado — só o tick de mudança importa.
         viewModelScope.launch {
-            exerciseLogRepository.observeAll().collectLatest {
+            exerciseLogRepository.observeCount().collectLatest {
                 val today = LocalDate.now()
 
                 // Paraleliza as 3 queries — são reads independentes da mesma
@@ -598,6 +602,11 @@ class HomeViewModel @Inject constructor(
      */
     private fun dismissActiveAlarm() {
         AlarmSoundPlayer.stop()
+        // Vibração também: o AlarmReceiver inicia o loop (repeat=0) junto com o
+        // som, e com o app em foreground a AlarmActivity (cujo onDestroy seria
+        // o outro ponto de stop) nunca abre — sem este cancel o device vibraria
+        // indefinidamente após dismiss/Check/stop pela Home.
+        VibrationPlayer.stop()
         NotificationManagerCompat.from(context).cancel(AlarmReceiver.NOTIFICATION_ID)
         // Cancela qualquer re-alerta pendente do overshoot — qualquer ação do
         // usuário que dispense o alarme atual deve interromper a cadeia de
@@ -633,7 +642,7 @@ class HomeViewModel @Inject constructor(
 
         viewModelScope.launch {
             val now = LocalDateTime.now()
-            val nowMillis = now.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+            val nowMillis = now.toEpochMillis()
 
             // Para som + notificação se o alarme estava ativo
             dismissActiveAlarm()
@@ -757,29 +766,21 @@ class HomeViewModel @Inject constructor(
     private fun scheduleAndPersist(nextDateTime: LocalDateTime, exercise: Exercise) =
         scheduleAndPersist(nextDateTime, exercise.id, exercise.name, exercise.targetReps)
 
+    /**
+     * Delegado ao helper compartilhado em RotationHelpers (invariante
+     * `schedule` → `setNextAlarm` centralizado).
+     */
     private fun scheduleAndPersist(
         nextDateTime: LocalDateTime,
         exerciseId: Long,
         exerciseName: String,
         targetReps: Int,
-    ) {
-        val nextMillis = nextDateTime
-            .atZone(ZoneId.systemDefault())
-            .toInstant()
-            .toEpochMilli()
-
-        alarmScheduler.schedule(
-            triggerAt = nextDateTime,
-            exerciseId = exerciseId,
-            exerciseName = exerciseName,
-            targetReps = targetReps,
-        )
-
-        sessionPrefs.setNextAlarm(
-            epochMillis = nextMillis,
-            exerciseId = exerciseId,
-            exerciseName = exerciseName,
-            targetReps = targetReps,
-        )
-    }
+    ) = scheduleAndPersist(
+        alarmScheduler = alarmScheduler,
+        sessionPrefs = sessionPrefs,
+        nextDateTime = nextDateTime,
+        exerciseId = exerciseId,
+        exerciseName = exerciseName,
+        targetReps = targetReps,
+    )
 }

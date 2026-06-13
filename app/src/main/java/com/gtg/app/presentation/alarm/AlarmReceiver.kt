@@ -89,6 +89,16 @@ class AlarmReceiver : BroadcastReceiver() {
 
         const val NOTIFICATION_ID = 7001
 
+        /**
+         * Ação do deleteIntent da notificação: Android 14+ permite ao usuário
+         * dispensar notificações ongoing com swipe, removendo o único caminho
+         * para a AlarmActivity enquanto som/vibração seguem tocando. O
+         * broadcast para as modalidades SEM tocar em prefs — isAlarmPending
+         * continua true e a Home segue mostrando o set pendente.
+         */
+        const val ACTION_NOTIFICATION_DISMISSED =
+            "com.gtg.app.action.ALARM_NOTIFICATION_DISMISSED"
+
         /** Budget para query Room + agendamento + I/O dentro do goAsync. */
         internal const val SUSPEND_BUDGET_MILLIS = 9_000L
         /** WakeLock cobre o budget + folga; menor que 60s pra evitar drain
@@ -120,6 +130,14 @@ class AlarmReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        // Swipe da notificação (deleteIntent): só silencia as modalidades.
+        // Sem goAsync, sem prefs — o set continua pendente para Check na Home.
+        if (intent.action == ACTION_NOTIFICATION_DISMISSED) {
+            AlarmSoundPlayer.stop()
+            VibrationPlayer.stop()
+            return
+        }
+
         val pendingResult = goAsync()
         val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
         val wakeLock = powerManager.newWakeLock(
@@ -176,11 +194,62 @@ class AlarmReceiver : BroadcastReceiver() {
         val now = LocalDateTime.now()
         val window = activityWindowRepository.getActiveWindow()
 
+        // Janela sumiu mid-session (deletada/desativada)? O resto do app trata
+        // "sem janela" como sessão impossível (AlarmViewModel.scheduleNext →
+        // NoWindowConfigured → clearSession); sem este guard, o dispatch
+        // tocaria e re-armaria overshoots indefinidamente (isInsideActiveWindow
+        // trata window=null como "sempre ativo").
+        if (window == null) {
+            Log.w(TAG, "dispatch sem ActivityWindow — encerrando sessão (paridade NoWindowConfigured)")
+            alarmScheduler.cancelOvershoot()
+            sessionPrefs.clearSession()
+            return
+        }
+
         // Fora da janela? Empurra cadeia para o próximo dia ativo e não toca
         // nem agenda overshoot. Espelha clampSnoozeToBounds do AlarmViewModel.
-        if (window != null && now > now.toLocalDate().atTime(window.endTime)) {
+        if (now > now.toLocalDate().atTime(window.endTime)) {
             rollChainToNextDay(window, exerciseId, exerciseName, targetReps)
             return
+        }
+
+        // ANTES do início da janela? Acontece quando a janela foi editada
+        // (08:00→10:00) com alarme já armado — edições não cancelam o
+        // PendingIntent — ou após mudança de timezone (o arme é epoch
+        // absoluto). Primary: suprime e re-arma no início RESOLVIDO da janela
+        // de hoje (postpone-only, mesma política e budget do block guard;
+        // fail-open para o início bare). Overshoot: drop silencioso, idêntico
+        // ao guard de dia inativo no onReceive.
+        val windowStartToday = now.toLocalDate().atTime(window.startTime)
+        if (now.isBefore(windowStartToday)) {
+            if (isOvershoot) return
+            val rearmAt = try {
+                withTimeoutOrNull(BLOCK_GUARD_BUDGET_MILLIS) {
+                    dynamicScheduler.resolveFirstAlarmStartingAt(
+                        startDate = now.toLocalDate(),
+                        activeDaysOfWeek = sessionPrefs.activeDaysOfWeek,
+                        intervalMode = sessionPrefs.intervalMode,
+                        prefetchedWindow = window,
+                    )
+                } ?: windowStartToday
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "resolução pré-janela falhou — usando início bare", e)
+                windowStartToday
+            }
+            val pending = resolvePendingExercise(exerciseId, exerciseName, targetReps)
+            val rearmed = suppressPrimaryInsideBlock(
+                alarmScheduler = alarmScheduler,
+                sessionPrefs = sessionPrefs,
+                rearmAt = rearmAt,
+                pendingExerciseId = pending.id,
+                pendingExerciseName = pending.name,
+                pendingTargetReps = pending.targetReps,
+            )
+            // TOCTOU (permissão revogada): sem rearme possível, suprimir seria
+            // alarme perdido em silêncio — cai para Ring, como no block guard.
+            if (rearmed) return
         }
 
         // Guard fire-time de blocos (fix 2026-06-11): eventos de calendário
@@ -190,9 +259,7 @@ class AlarmReceiver : BroadcastReceiver() {
         // de notify" protege exige uma notificação visível para o usuário
         // tocar Check/Snooze — que ainda não existe neste ponto. Ver doc do
         // invariant (amendada).
-        if (window != null &&
-            suppressedByBlockGuard(now, window, isOvershoot, exerciseId, exerciseName, targetReps)
-        ) {
+        if (suppressedByBlockGuard(now, window, isOvershoot, exerciseId, exerciseName, targetReps)) {
             return
         }
 
@@ -218,6 +285,20 @@ class AlarmReceiver : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
+        // deleteIntent: swipe da notificação (possível em ongoing no 14+)
+        // precisa parar som/vibração — sem ele, as modalidades só param via
+        // AlarmActivity, que nunca abre se a notificação foi dispensada.
+        // A action distinta evita colisão com os PendingIntents de alarme
+        // (filterEquals difere mesmo com requestCode igual).
+        val deletePendingIntent = PendingIntent.getBroadcast(
+            context,
+            NOTIFICATION_ID,
+            Intent(context, AlarmReceiver::class.java).apply {
+                action = ACTION_NOTIFICATION_DISMISSED
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
         val notification = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_fitness)
             .setContentTitle(context.getString(R.string.alarm_notification_title))
@@ -231,6 +312,7 @@ class AlarmReceiver : BroadcastReceiver() {
             .setFullScreenIntent(fullScreenPendingIntent, true)
             .setAutoCancel(true)
             .setOngoing(true)
+            .setDeleteIntent(deletePendingIntent)
             .build()
 
         // Próximo overshoot — agendado ANTES de notify para fechar a janela de
@@ -362,15 +444,15 @@ class AlarmReceiver : BroadcastReceiver() {
                         )
                     }
                 } else {
-                    val (pendingId, pendingName, pendingReps) =
+                    val pending =
                         resolvePendingExercise(fallbackExerciseId, fallbackExerciseName, fallbackTargetReps)
                     val rearmed = suppressPrimaryInsideBlock(
                         alarmScheduler = alarmScheduler,
                         sessionPrefs = sessionPrefs,
                         rearmAt = decision.rearmAt,
-                        pendingExerciseId = pendingId,
-                        pendingExerciseName = pendingName,
-                        pendingTargetReps = pendingReps,
+                        pendingExerciseId = pending.id,
+                        pendingExerciseName = pending.name,
+                        pendingTargetReps = pending.targetReps,
                     )
                     if (!rearmed) {
                         // TOCTOU: permissão revogada entre decisão e aplicação.
@@ -406,19 +488,30 @@ class AlarmReceiver : BroadcastReceiver() {
         fallbackExerciseName: String,
         fallbackTargetReps: Int,
     ) {
-        val (pendingId, pendingName, pendingReps) =
+        val pending =
             resolvePendingExercise(fallbackExerciseId, fallbackExerciseName, fallbackTargetReps)
         rescheduleForNextDay(
             alarmScheduler = alarmScheduler,
             sessionPrefs = sessionPrefs,
             window = window,
             activeDays = sessionPrefs.activeDaysOfWeek,
-            pendingExerciseId = pendingId,
-            pendingExerciseName = pendingName,
-            pendingTargetReps = pendingReps,
+            pendingExerciseId = pending.id,
+            pendingExerciseName = pending.name,
+            pendingTargetReps = pending.targetReps,
             dynamicScheduler = dynamicScheduler,
         )
     }
+
+    /**
+     * Snapshot nomeado do exercício pending — substitui o Triple posicional
+     * para que uma mudança de assinatura não cause swap silencioso de campos
+     * nos call sites.
+     */
+    private data class PendingExerciseSnapshot(
+        val id: Long,
+        val name: String,
+        val targetReps: Int,
+    )
 
     /**
      * Exercício pending do sessionPrefs com fallback nos extras do intent —
@@ -430,9 +523,9 @@ class AlarmReceiver : BroadcastReceiver() {
         fallbackExerciseId: Long,
         fallbackExerciseName: String,
         fallbackTargetReps: Int,
-    ): Triple<Long, String, Int> = Triple(
-        sessionPrefs.pendingExerciseId.takeIf { it > 0L } ?: fallbackExerciseId,
-        sessionPrefs.pendingExerciseName.takeIf { it.isNotBlank() } ?: fallbackExerciseName,
-        sessionPrefs.pendingTargetReps.takeIf { it > 0 } ?: fallbackTargetReps,
+    ): PendingExerciseSnapshot = PendingExerciseSnapshot(
+        id = sessionPrefs.pendingExerciseId.takeIf { it > 0L } ?: fallbackExerciseId,
+        name = sessionPrefs.pendingExerciseName.takeIf { it.isNotBlank() } ?: fallbackExerciseName,
+        targetReps = sessionPrefs.pendingTargetReps.takeIf { it > 0 } ?: fallbackTargetReps,
     )
 }

@@ -18,7 +18,9 @@ class InactivityBlockRepositoryImpl @Inject constructor(
         dao.observeAll().map { list -> list.map { it.toDomain() } }
 
     override suspend fun getBlocksActiveOn(date: LocalDate): List<InactivityBlock> =
-        dao.getAll()
+        // SQL poda os NONE de outras datas (categoria que cresce sem limite);
+        // o filtro fino de recorrência continua no domínio via isActiveOn.
+        dao.getCandidatesForDate(date.toString())
             .map { it.toDomain() }
             .filter { it.isActiveOn(date) }
 

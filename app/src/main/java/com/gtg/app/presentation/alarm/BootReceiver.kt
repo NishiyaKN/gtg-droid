@@ -6,6 +6,7 @@ import android.content.Intent
 import com.gtg.app.data.local.SessionPreferences
 import com.gtg.app.domain.scheduler.AlarmScheduler
 import com.gtg.app.domain.usecase.findNextActiveDate
+import com.gtg.app.domain.usecase.toEpochMillis
 import dagger.hilt.android.AndroidEntryPoint
 import java.time.Instant
 import java.time.LocalDateTime
@@ -102,8 +103,7 @@ class BootReceiver : BroadcastReceiver() {
             )
             if (needsShift) {
                 sessionPrefs.setNextAlarm(
-                    epochMillis = triggerAt.atZone(ZoneId.systemDefault())
-                        .toInstant().toEpochMilli(),
+                    epochMillis = triggerAt.toEpochMillis(),
                     exerciseId = sessionPrefs.pendingExerciseId,
                     exerciseName = sessionPrefs.pendingExerciseName,
                     targetReps = sessionPrefs.pendingTargetReps,
@@ -115,6 +115,22 @@ class BootReceiver : BroadcastReceiver() {
             // mostrará o timer em overdue e o botão de Check habilitado
             // (countdown unificado, sem estado PENDING_CHECK separado).
             sessionPrefs.setAlarmPending(true)
+
+            // O reboot apagou também o overshoot do AlarmManager — sem este
+            // rearme, a cadeia de re-alertas morre em silêncio e o usuário só
+            // descobre o set perdido ao abrir o app. Um único overshoot em
+            // now + overshootRepeatMinutes retoma a cadeia; os seguintes são
+            // rearmados pelo fluxo normal do AlarmReceiver. Nada é persistido
+            // (overshoot nunca é) — falha de permissão é benigna.
+            if (sessionPrefs.overshootRepeatEnabled) {
+                alarmScheduler.scheduleOvershoot(
+                    triggerAt = LocalDateTime.now()
+                        .plusMinutes(sessionPrefs.overshootRepeatMinutes.toLong()),
+                    exerciseId = sessionPrefs.pendingExerciseId,
+                    exerciseName = sessionPrefs.pendingExerciseName,
+                    targetReps = sessionPrefs.pendingTargetReps,
+                )
+            }
         }
     }
 }

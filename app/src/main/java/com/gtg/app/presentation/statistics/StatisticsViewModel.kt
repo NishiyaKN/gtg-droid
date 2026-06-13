@@ -64,9 +64,10 @@ class StatisticsViewModel @Inject constructor(
     val state: StateFlow<StatisticsUiState> = _state.asStateFlow()
 
     init {
-        // Re-calcula stats quando novos logs são inseridos (Flow reativo do Room)
+        // Re-calcula stats quando novos logs são inseridos (Flow reativo do
+        // Room). observeCount: o payload era descartado — só o tick importa.
         viewModelScope.launch {
-            logRepository.observeAll().collectLatest {
+            logRepository.observeCount().collectLatest {
                 loadStats()
             }
         }
